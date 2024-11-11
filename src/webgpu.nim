@@ -5,9 +5,6 @@ import jscanvas
 type
   GPU* = ref object
 
-  Navigator* = ref object
-    gpu*: GPU
-
   GPUCanvasContext* = ref object
 
   GPUAdapter* = ref object
@@ -18,7 +15,7 @@ type
 
   GPURenderPipelineDescriptor* = ref object
 
-let navigator* {.importjs, nodecl.}: Navigator
+func gpu*(navigator: Navigator): GPU {.importjs: "#.gpu".}
 
 proc getContextWebGPU*(
   c: CanvasElement
