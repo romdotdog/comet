@@ -5,33 +5,11 @@ import jsconsole
 import jsffi
 import macros
 import dom
-import std/asyncjs
+import asyncjs
+import webgpu
 
 const triangleVertWGSL = staticRead("triangle.vert.wgsl")
 const redFragWGSL = staticRead("red.frag.wgsl")
-
-type
-  Canvas = ref object of dom.Element
-    width: float
-    height: float
-
-  CanvasContextWebGPU = ref object
-
-  Adapter = ref object
-  Device = ref object
-
-proc getCanvas(): Canvas =
-  {.emit: "`result` = document.getElementById('canvas');".}
-
-
-proc getContextWebGPU(c: Canvas): CanvasContextWebGPU =
-  {.emit: "`result` = `c`.getContext('webgpu');".}
-    
-proc getAdapter(): Future[Adapter] = 
-  {.emit: "`result` = navigator.gpu?.requestAdapter();".}
-
-proc getDevice(adapter: Adapter): Future[Adapter] = 
-  {.emit: "`result` = `adapter`.requestDevice();".}
 
 let canvas = getCanvas()
 let ctx = canvas.getContextWebGPU()
@@ -40,4 +18,71 @@ let devicePixelRatio = window.devicePixelRatio;
 canvas.width = canvas.clientWidth.float * devicePixelRatio;
 canvas.height = canvas.clientHeight.float * devicePixelRatio;
 
-let adapter = await getAdapter()
+proc main() {.async.} =
+  let adapter = await webgpu.navigator.gpu.requestAdapter() 
+  let presentationFormat = await webgpu.navigator.gpu.getPreferredCanvasFormat()
+  let device = await adapter.getDevice()
+
+  ctx.configure(GPUContextConfiguration(
+    device: device,
+    format: presentationFormat
+  ))
+
+discard main()
+
+
+discard """
+
+context.configure({
+  device,
+  format: presentationFormat,
+});
+
+const pipeline = device.createRenderPipeline({
+  layout: 'auto',
+  vertex: {
+    module: device.createShaderModule({
+      code: triangleVertWGSL,
+    }),
+  },
+  fragment: {
+    module: device.createShaderModule({
+      code: redFragWGSL,
+    }),
+    targets: [
+      {
+        format: presentationFormat,
+      },
+    ],
+  },
+  primitive: {
+    topology: 'triangle-list',
+  },
+});
+
+function frame() {
+  const commandEncoder = device.createCommandEncoder();
+  const textureView = context.getCurrentTexture().createView();
+
+  const renderPassDescriptor: GPURenderPassDescriptor = {
+    colorAttachments: [
+      {
+        view: textureView,
+        clearValue: [0, 0, 0, 0], // Clear to transparent
+        loadOp: 'clear',
+        storeOp: 'store',
+      },
+    ],
+  };
+
+  const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+  passEncoder.setPipeline(pipeline);
+  passEncoder.draw(3);
+  passEncoder.end();
+
+  device.queue.submit([commandEncoder.finish()]);
+  requestAnimationFrame(frame);
+}
+
+requestAnimationFrame(frame);
+"""
