@@ -29,7 +29,7 @@ type
     device*: GPUDevice
     format*: cstring
 
-proc gpu*(n: Navigator): GPU {.importjs: "#.gpu".}
+func gpu*(navigator: Navigator): GPU {.importjs: "#.gpu".}
 
 proc getContextWebGPU*(
   c: CanvasElement
