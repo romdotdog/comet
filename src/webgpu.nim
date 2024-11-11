@@ -101,7 +101,7 @@ type
   GPURenderPassEncoder* = ref object
   GPURenderPassColorAttachment* = ref object
     view*: GPUTextureView
-    clearValue*: seq[float32] # RGBA values for clearing
+    clearValue*: array[0..3, float32] # RGBA values for clearing
     loadOp*: cstring # either "clear" or "load"
     storeOp*: cstring # either "store" or "discard"
   GPUCommandBuffer* = ref object

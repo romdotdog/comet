@@ -46,21 +46,24 @@ proc main() {.async.} =
     )
   ))
 
+  let renderPassDescriptor = GPURenderPassDescriptor(
+    colorAttachments: @[
+      GPURenderPassColorAttachment(
+        view: nil,
+        clearValue: [0.0, 0.0, 0.0, 0.0], # Clear to transparent black
+        loadOp: "clear",
+        storeOp: "store"
+      )
+    ]
+  )
+
   proc frame(time: float) =
-    let commandEncoder = device.createCommandEncoder()
     let texture = ctx.getCurrentTexture()
     let textureView = texture.createView()
 
-    let renderPassDescriptor = GPURenderPassDescriptor(
-      colorAttachments: @[
-        GPURenderPassColorAttachment(
-          view: textureView,
-          clearValue: @[0.0, 0.0, 0.0, 0.0], # Clear to transparent black
-          loadOp: "clear",
-          storeOp: "store"
-        )
-      ]
-    )
+    renderPassDescriptor.colorAttachments[0].view = textureView
+
+    let commandEncoder = device.createCommandEncoder()
 
     let passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor)
     passEncoder.setPipeline(pipeline)
