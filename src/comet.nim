@@ -1,12 +1,11 @@
+when not defined(js):
+  {.fatal: "comet must be compiled with the JavaScript backend.".}
+
 import jsconsole
 import jsffi
 import macros
 import dom
 import std/asyncjs
-
-when not defined(js):
-  {.fatal: "comet must be compiled with the JavaScript backend.".}
-
 
 const triangleVertWGSL = staticRead("triangle.vert.wgsl")
 const redFragWGSL = staticRead("red.frag.wgsl")
