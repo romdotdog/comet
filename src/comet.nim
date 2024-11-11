@@ -1,27 +1,29 @@
 when not defined(js):
   {.fatal: "comet must be compiled with the JavaScript backend.".}
 
-import jsconsole
-import jsffi
-import macros
-import dom
-import asyncjs
-import webgpu
+import jsconsole, jsffi, macros, dom, asyncjs
 
-const triangleVertWGSL = staticRead("triangle.vert.wgsl")
-const redFragWGSL = staticRead("red.frag.wgsl")
+import jscanvas
 
-let canvas = getCanvas()
-let ctx = canvas.getContextWebGPU()
+import ./webgpu
+
+const
+  TriangleVertWGSL = staticRead("triangle.vert.wgsl")
+  RedFragWGSL = staticRead("red.frag.wgsl")
+
+let
+  canvas = document.getElementById("canvas").CanvasElement
+  ctx = canvas.getContextWebGPU()
 
 let devicePixelRatio = window.devicePixelRatio;
 canvas.width = canvas.clientWidth.float * devicePixelRatio;
 canvas.height = canvas.clientHeight.float * devicePixelRatio;
 
 proc main() {.async.} =
-  let adapter = await webgpu.navigator.gpu.requestAdapter() 
-  let presentationFormat = await webgpu.navigator.gpu.getPreferredCanvasFormat()
-  let device = await adapter.getDevice()
+  let
+    adapter = await navigator.gpu.requestAdapter() 
+    presentationFormat = await navigator.gpu.getPreferredCanvasFormat()
+    device = await adapter.getDevice()
 
   ctx.configure(GPUContextConfiguration(
     device: device,

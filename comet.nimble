@@ -11,4 +11,5 @@ backend       = "js"
 
 # Dependencies
 
-requires "nim >= 2.2.0"
+requires "nim >= 2.0.8",
+         "jscanvas >= 0.1.0"
