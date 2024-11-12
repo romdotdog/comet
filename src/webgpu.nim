@@ -2,19 +2,19 @@ import dom, asyncjs
 
 import jscanvas
 
-const
-  GPUBufferUsageMapRead = 1 shl 0
-  GPUBufferUsageMapWrite = 1 shl 1
-  GPUBufferUsageCopySrc = 1 shl 2
-  GPUBufferUsageCopyDst = 1 shl 3
-  GPUBufferUsageIndex = 1 shl 4
-  GPUBufferUsageVertex = 1 shl 5
-  GPUBufferUsageUniform = 1 shl 6
-  GPUBufferUsageStorage = 1 shl 7
-  GPUBufferUsageIndirect = 1 shl 8
-  GPUBufferUsageQueryResolve = 1 shl 9
-
 type
+  GPUBufferUsage = enum
+    MapRead
+    MapWrite
+    CopySrc
+    CopyDst
+    Index
+    Vertex
+    Uniform
+    Storage
+    Indirect
+    QueryResolve
+
   GPU* = ref object
 
   GPUCanvasContext* = ref object
@@ -22,12 +22,16 @@ type
   GPUAdapter* = ref object
 
   GPUQueue* = ref object
+
   GPUDevice* = ref object
     queue*: GPUQueue
 
   GPUContextConfiguration* = ref object
     device*: GPUDevice
     format*: cstring
+
+converter toInt*(gpuBufferUsage: GPUBufferUsage): int =
+  1 shl int(gpuBufferUsage)
 
 func gpu*(navigator: Navigator): GPU {.importjs: "#.gpu".}
 
@@ -43,7 +47,7 @@ proc getPreferredCanvasFormat*(
   gpu: GPU
 ): Future[cstring] {.importjs: "#.getPreferredCanvasFormat()".}
 
-proc getDevice*(
+proc requestDevice*(
   adapter: GPUAdapter
 ): Future[GPUDevice] {.importjs: "#.requestDevice()".}
 
@@ -64,66 +68,104 @@ type
 
   GPUCommandEncoder* = ref object
 
-proc createBuffer*(device: GPUDevice, descriptor: GPUBufferDescriptor): GPUBuffer {.importjs: "#.createBuffer(#)".}
+proc createBuffer*(
+  device: GPUDevice,
+  descriptor: GPUBufferDescriptor
+): GPUBuffer {.importjs: "#.createBuffer(#)".}
 
 # Shader modules
 
 type GPUShaderModule* = ref object
 
-proc createShaderModule*(device: GPUDevice, code: cstring): GPUShaderModule {.importjs: "#.createShaderModule({ code: # })".}
+proc createShaderModule*(
+  device: GPUDevice,
+  code: cstring
+): GPUShaderModule {.importjs: "#.createShaderModule({ code: # })".}
 
 
 # Create render pipeline
 
 type
+
   GPURenderPipeline* = ref object
+
   GPUVertex* = ref object
     module*: GPUShaderModule
+
   GPUTarget* = ref object
     format*: cstring
+
   GPUFragment* = ref object
     module*: GPUShaderModule
     targets*: seq[GPUTarget]
+
   GPUPrimitive* = ref object
     topology*: cstring
+
   GPURenderPipelineDescriptor* = ref object
     layout*: cstring
     vertex*: GPUVertex  
     fragment*: GPUFragment
     primitive*: GPUPrimitive
 
-proc createRenderPipeline*(device: GPUDevice, descriptor: GPURenderPipelineDescriptor): GPURenderPipeline {.importjs: "#.createRenderPipeline(#)".}
+proc createRenderPipeline*(
+  device: GPUDevice,
+  descriptor: GPURenderPipelineDescriptor
+): GPURenderPipeline {.importjs: "#.createRenderPipeline(#)".}
 
 
 # Command encoder and render pass
 
 type
   GPURenderPassEncoder* = ref object
+
   GPURenderPassColorAttachment* = ref object
     view*: GPUTextureView
-    clearValue*: array[0..3, float32] # RGBA values for clearing
-    loadOp*: cstring # either "clear" or "load"
-    storeOp*: cstring # either "store" or "discard"
+    clearValue*: array[0..3, float32] ## RGBA values for clearing
+    loadOp*: cstring ## either "clear" or "load"
+    storeOp*: cstring ## either "store" or "discard"
+
   GPUCommandBuffer* = ref object
+
   GPURenderPassDescriptor* = ref object
-    colorAttachments*: seq[GPURenderPassColorAttachment] # List of color attachments
+    colorAttachments*: seq[GPURenderPassColorAttachment] ## List of color attachments
+
   GPUTexture* = ref object
+
   GPUTextureView* = ref object
 
 
-proc createCommandEncoder*(device: GPUDevice): GPUCommandEncoder {.importjs: "#.createCommandEncoder()".}
-proc beginRenderPass*(encoder: GPUCommandEncoder, descriptor: GPURenderPassDescriptor): GPURenderPassEncoder {.importjs: "#.beginRenderPass(#)".}
-proc finish*(encoder: GPUCommandEncoder): GPUCommandBuffer {.importjs: "#.finish()".}
+proc createCommandEncoder*(
+  device: GPUDevice
+): GPUCommandEncoder {.importjs: "#.createCommandEncoder()".}
+proc beginRenderPass*(
+  encoder: GPUCommandEncoder,
+  descriptor: GPURenderPassDescriptor
+): GPURenderPassEncoder {.importjs: "#.beginRenderPass(#)".}
+proc finish*(
+  encoder: GPUCommandEncoder
+): GPUCommandBuffer {.importjs: "#.finish()".}
 
-proc setPipeline*(encoder: GPURenderPassEncoder, pipeline: GPURenderPipeline) {.importjs: "#.setPipeline(#)".}
-proc draw*(encoder: GPURenderPassEncoder, vertexCount: int) {.importjs: "#.draw(#)".}
-proc `end`*(encoder: GPURenderPassEncoder) {.importjs: "#.end()".}
+proc setPipeline*(
+  encoder: GPURenderPassEncoder,
+  pipeline: GPURenderPipeline) {.importjs: "#.setPipeline(#)".}
+proc draw*(
+  encoder: GPURenderPassEncoder,
+  vertexCount: int) {.importjs: "#.draw(#)".}
+proc `end`*(
+  encoder: GPURenderPassEncoder) {.importjs: "#.end()".}
 
-proc getCurrentTexture*(context: GPUCanvasContext): GPUTexture {.importjs: "#.getCurrentTexture()".}
+proc getCurrentTexture*(
+  context: GPUCanvasContext
+): GPUTexture {.importjs: "#.getCurrentTexture()".}
 
-proc createView*(texture: GPUTexture): GPUTextureView {.importjs: "#.createView()".}
+proc createView*(
+  texture: GPUTexture
+): GPUTextureView {.importjs: "#.createView()".}
 
-# Submit queue
-
-proc submit*(queue: GPUQueue, commandBuffers: seq[GPUCommandBuffer]) {.importjs: "#.submit(#)".}
+proc submit*(
+  queue: GPUQueue,
+  commandBuffers: seq[GPUCommandBuffer]) {.importjs: "#.submit(#)".} =
+  ## Submit queue
+  discard
 
