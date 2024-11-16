@@ -2,7 +2,7 @@ when not defined(js):
   {.fatal: "comet must be compiled with the JavaScript backend.".}
 
 # import jsconsole, jsffi, macros
-import dom, asyncjs, std/with, jsconsole
+import dom, asyncjs, std/with, jsconsole # , sugar
 
 import jscanvas
 
@@ -31,6 +31,12 @@ proc main() {.async.} =
     format: presentationFormat
   ))
 
+  # var data {.group: 0, binding: 0, flags: [storage, read_write].}: array[f32]
+
+  # proc computeSomething(id {.builtin: global_invocation_id.}: vec3u) {.compute, workgroup_size: 1.} =
+  #   let i = id.x
+  #   data[i] = data[i] * 2
+
   let
     shaderModule = device.createShaderModule(ShaderModuleDescriptor(
       label: "doubling compute shader",
@@ -49,13 +55,13 @@ proc main() {.async.} =
     pipeline = device.createComputePipeline(GPUComputePipelineDescriptor(
       label: "doubling compute pipeline",
       layout: "auto",
-      compute: (
+      compute: GPUComputeDescriptor(
         entryPoint: "computeSomething",
         module: shaderModule
       )
     ))
 
-  var input = TypedArray.new([1'f32, 3, 5])
+  var input = TypedArray.new(@[1'f32, 3, 5])
 
   let
     workBuffer = device.createBuffer(GPUBufferDescriptor(
@@ -77,7 +83,7 @@ proc main() {.async.} =
       label: "bindGroup for work buffer",
       layout: pipeline.getBindGroupLayout(0),
       entries: @[
-        (
+        GPUBindGroupEntry(
           binding: 0,
           resource: GPUResourceDescriptor(buffer: workBuffer)
         )
@@ -94,9 +100,9 @@ proc main() {.async.} =
     `end`()
 
   encoder.copyBufferToBuffer(
-    resultBuffer,
-    0,
     workBuffer,
+    0,
+    resultBuffer,
     0,
     input.byteLength
   )

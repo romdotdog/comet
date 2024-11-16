@@ -1,11 +1,11 @@
-import dom, asyncjs
+import dom, asyncjs # , sugar
 
 import jscanvas
 
 import ./typed_arrays
 
 type
-  GPUBufferUsage* = enum
+  GPUBufferUsage* {.importjs: "GPUBufferUsage".} = enum
     MapRead
     MapWrite
     CopySrc
@@ -17,33 +17,33 @@ type
     Indirect
     QueryResolve
 
-  GPUMapMode* = enum
+  GPUMapMode* {.importjs: "GPUMapMode".} = enum
     Read = 1
     Write
 
-  GPU* = ref object
+  GPU* {.importjs: "GPU".} = ref object
 
-  GPUCanvasContext* = ref object
+  GPUCanvasContext* {.importjs: "GPUCanvasContext".} = ref object
 
-  GPUAdapter* = ref object
+  GPUAdapter* {.importjs: "GPUAdapter".} = ref object
 
-  GPUQueue* = ref object
+  GPUQueue* {.importjs: "GPUQueue".} = ref object
 
-  GPUDevice* = ref object
+  GPUDevice* {.importjs: "GPUDevice".} = ref object
     queue*: GPUQueue
 
   GPUContextConfiguration* = ref object
     device*: GPUDevice
     format*: cstring
 
-  GPUBuffer* = ref object
+  GPUBuffer* {.importjs: "GPUBuffer".} = ref object
 
   GPUBufferDescriptor* = ref object
     label*: cstring = nil
     size*: int
     usage*: int
 
-  GPUCommandEncoder* = ref object
+  GPUCommandEncoder* {.importjs: "GPUCommandEncoder".} = ref object
 
   ShaderModuleDescriptor* = ref object
     label*: cstring = nil
@@ -51,7 +51,7 @@ type
     # hints: 
     # sourceMap: 
 
-  GPUShaderModule* = ref object
+  GPUShaderModule* {.importjs: "GPUShaderModule".} = ref object
 
   GPURenderPipelineDescriptor* = ref object
     layout*: cstring
@@ -59,7 +59,7 @@ type
     fragment*: GPUFragment
     primitive*: GPUPrimitive
 
-  GPURenderPipeline* = ref object
+  GPURenderPipeline* {.importjs: "GPURenderPipeline".} = ref object
 
   GPUVertex* = ref object
     module*: GPUShaderModule
@@ -74,35 +74,41 @@ type
   GPUPrimitive* = ref object
     topology*: cstring
 
+  GPUComputeDescriptor* = ref object
+    entryPoint*: cstring
+    module*: GPUShaderModule
+
   GPUComputePipelineDescriptor* = ref object
     label*: cstring = nil
     layout*: cstring # XXX: shouldn't be like this
-    compute*: tuple[
-      entryPoint: cstring,
-      module: GPUShaderModule,
-    ]
+    compute*: GPUComputeDescriptor
 
-  GPUComputePipeline* = ref object
+  GPUComputePipeline* {.importjs: "GPUComputePipeline".} = ref object
+
+  GPUBindGroupEntry* = ref object
+    label*: cstring = nil
+    binding*: int
+    resource*: GPUResourceDescriptor
 
   GPUBindGroupDescriptor* = ref object
     label*: cstring = nil
     layout*: GPUBindGroupLayout
-    entries*: seq[tuple[binding: int, resource: GPUResourceDescriptor]]
+    entries*: seq[GPUBindGroupEntry]
 
-  GPUBindGroup* = ref object
+  GPUBindGroup* {.importjs: "GPUBindGroup".} = ref object
 
   GPUResourceDescriptor* = ref object
     buffer*: GPUBuffer
 
-  GPUBindGroupLayout* = ref object
+  GPUBindGroupLayout* {.importjs: "GPUBindGroupLayout".} = ref object
 
-  GPUComputePassEncoder* = ref object
-
-converter toInt*(gpuBufferUsage: GPUBufferUsage): int {.inline.} =
-  1 shl int(gpuBufferUsage)
+  GPUComputePassEncoder* {.importjs: "GPUComputePassEncoder".} = ref object
 
 converter toInt*(gpuBufferUsages: set[GPUBufferUsage]): int {.inline.} =
-  cast[int](gpuBufferUsages)
+  result = 0
+  for usage in gpuBufferUsages:
+    # dump (usage, usage.ord, 1 shl usage.ord, result)
+    result = result or (1 shl usage.ord)
 
 func gpu*(navigator: Navigator): GPU {.importjs: "#.gpu".}
 
@@ -202,7 +208,7 @@ proc finish*(
 proc getBindGroupLayout*(
   pipeline: GPUComputePipeline,
   index: SomeInteger
-): GPUBindGroupLayout {.importjs: "#.getBindGroupLayout(#, #)".}
+): GPUBindGroupLayout {.importjs: "#.getBindGroupLayout(#)".}
 
 proc setPipeline*(
   encoder: GPURenderPassEncoder,
