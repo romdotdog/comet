@@ -27,9 +27,14 @@ type
 
   GPUAdapter* {.importjs: "GPUAdapter".} = ref object
 
+  GPUDeviceLostInfo* {.importjs: "GPUDeviceLostInfo".} = ref object
+    message*: cstring
+    reason*: cstring
+
   GPUQueue* {.importjs: "GPUQueue".} = ref object
 
   GPUDevice* {.importjs: "GPUDevice".} = ref object
+    lost*: Future[GPUDeviceLostInfo]
     queue*: GPUQueue
 
   GPUContextConfiguration* = ref object
@@ -104,11 +109,14 @@ type
 
   GPUComputePassEncoder* {.importjs: "GPUComputePassEncoder".} = ref object
 
+converter toInt*(gpuBufferUsage: GPUBufferUsage): int {.inline.} =
+  result = 1 shl gpuBufferUsage.ord
+
 converter toInt*(gpuBufferUsages: set[GPUBufferUsage]): int {.inline.} =
   result = 0
   for usage in gpuBufferUsages:
     # dump (usage, usage.ord, 1 shl usage.ord, result)
-    result = result or (1 shl usage.ord)
+    result = result or usage.toInt()
 
 func gpu*(navigator: Navigator): GPU {.importjs: "#.gpu".}
 

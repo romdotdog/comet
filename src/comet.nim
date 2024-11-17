@@ -6,13 +6,13 @@ import dom, asyncjs, std/with, jsconsole # , sugar
 
 import jscanvas
 
-import ./[webgpu, typed_arrays]
+import ./[webgpu, typed_arrays, init]
 
 # const
 #   TriangleVertWGSL = staticRead("triangle.vert.wgsl")
 #   RedFragWGSL = staticRead("red.frag.wgsl")
 
-proc main() {.async.} =
+proc main(device: GPUDevice) {.async nimcall.} =
   let
     canvas = document.getElementById("canvas").CanvasElement
     ctx = canvas.getContextWebGPU()
@@ -21,10 +21,7 @@ proc main() {.async.} =
   canvas.width = int(canvas.clientWidth.float * devicePixelRatio)
   canvas.height = int(canvas.clientHeight.float * devicePixelRatio)
 
-  let
-    adapter = await navigator.gpu.requestAdapter()
-    presentationFormat = await navigator.gpu.getPreferredCanvasFormat()
-    device = await adapter.requestDevice()
+  let presentationFormat = await navigator.gpu.getPreferredCanvasFormat()
 
   ctx.configure(GPUContextConfiguration(
     device: device,
@@ -33,7 +30,7 @@ proc main() {.async.} =
 
   # var data {.group: 0, binding: 0, flags: [storage, read_write].}: array[f32]
 
-  # proc computeSomething(id {.builtin: global_invocation_id.}: vec3u) {.compute, workgroup_size: 1.} =
+  # proc main(id {.builtin: global_invocation_id.}: vec3u) {.compute, workgroup_size: 1.} =
   #   let i = id.x
   #   data[i] = data[i] * 2
 
@@ -41,9 +38,9 @@ proc main() {.async.} =
     shaderModule = device.createShaderModule(ShaderModuleDescriptor(
       label: "doubling compute shader",
       code: """
-      @group(0) @binding(0) var<storage, read_write> data: array<f32>;
+      @group(0) @binding(0) var<storage, read_write> data: array<vec3f>;
 
-      @compute @workgroup_size(1) fn computeSomething(
+      @compute @workgroup_size(1) fn main(
         @builtin(global_invocation_id) id: vec3u
       ) {
         let i = id.x;
@@ -56,12 +53,13 @@ proc main() {.async.} =
       label: "doubling compute pipeline",
       layout: "auto",
       compute: GPUComputeDescriptor(
-        entryPoint: "computeSomething",
+        entryPoint: "main",
         module: shaderModule
       )
     ))
 
-  var input = TypedArray.new(@[1'f32, 3, 5])
+  # we have to add zeroes because of padding
+  var input = TypedArray.new(@[1'f32, 3, 5, 0, 1, 3, 5, 0, 1, 3, 5, 0])
 
   let
     workBuffer = device.createBuffer(GPUBufferDescriptor(
@@ -96,7 +94,7 @@ proc main() {.async.} =
   with pass:
     setPipeline(pipeline)
     setBindGroup(0, bindGroup)
-    dispatchWorkgroups(input.len)
+    dispatchWorkgroups(int(input.len / 4))
     `end`()
 
   encoder.copyBufferToBuffer(
@@ -164,4 +162,4 @@ proc main() {.async.} =
 
   # discard window.requestAnimationFrame(frame)
 
-discard main()
+discard getDeviceAndExecute(main)
