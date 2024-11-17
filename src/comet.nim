@@ -22,6 +22,7 @@ proc main(device: GPUDevice) {.async nimcall.} =
     devicePixelRatio = window.devicePixelRatio
 
   # TODO: Move this to a separate module
+  # TODO: delta time
   var scaleOffset = 1.0
   var scaleTarget = 1.0
 
@@ -37,6 +38,8 @@ proc main(device: GPUDevice) {.async nimcall.} =
 
   var retMouseX = 0.0
   var retMouseY = 0.0
+
+  var lastMouseMovementTime = window.performance.now()
   proc getMouse(e: MouseEvent) =
     retMouseX = (e.clientX.float - rect.left) * (canvas.width.float / rect.width.float)
     retMouseY = (e.clientY.float - rect.top) * (canvas.height.float / rect.height.float)
@@ -52,6 +55,12 @@ proc main(device: GPUDevice) {.async nimcall.} =
 
   canvas.addEventListener("mouseup", proc(e: Event) = 
     canvas.removeAttribute("grabbing")
+
+    if abs(panVelocityX) < devicePixelRatio:
+      panVelocityX = 0
+    if abs(panVelocityY) < devicePixelRatio:
+      panVelocityY = 0
+
     currentlyPanning = false)
 
   canvas.addEventListener("mousemove", proc(e: Event) =
@@ -76,8 +85,7 @@ proc main(device: GPUDevice) {.async nimcall.} =
 
       # update last mouse position
       lastMouseX = currentMouseX
-      lastMouseY = currentMouseY
-  )
+      lastMouseY = currentMouseY)
 
   type WheelEvent = ref object of MouseEvent
     deltaY: float32 
@@ -101,8 +109,8 @@ proc main(device: GPUDevice) {.async nimcall.} =
       let factor = 1 - scaleOffset / old
 
       # TODO: zoom into mouse position
-      panOffsetX = panOffsetX + (0 - panOffsetX) * factor
-      panOffsetY = panOffsetY + (0 - panOffsetY) * factor
+      panOffsetX += (0 - panOffsetX) * factor
+      panOffsetY += (0 - panOffsetY) * factor
       
     # pan
 
@@ -110,8 +118,8 @@ proc main(device: GPUDevice) {.async nimcall.} =
       panOffsetX += 2 * panVelocityX
       panOffsetY += 2 * panVelocityY
 
-      panVelocityX *= 0.9
-      panVelocityY *= 0.9
+    panVelocityX *= 0.9
+    panVelocityY *= 0.9
 
   canvas.width = int(rect.right.float * devicePixelRatio) - int(rect.left.float * devicePixelRatio)
   canvas.height = int(rect.bottom.float * devicePixelRatio) - int(rect.top.float * devicePixelRatio)
