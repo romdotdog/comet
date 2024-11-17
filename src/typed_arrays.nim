@@ -25,3 +25,4 @@ proc `[]=`*[T](typedArray: TypedArray[T], index: int, value: T) {.importjs: "#[#
 func byteLength*[T](typedArray: TypedArray[T]): int {.importjs: "#.byteLength".}
 func len*[T](typedArray: TypedArray[T]): int {.importjs: "#.length".}
 
+converter toTypedArray*[N: static[int]; T](arr: array[N, T]): TypedArray[T] {.importjs: "#".}

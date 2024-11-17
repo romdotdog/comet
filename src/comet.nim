@@ -11,10 +11,13 @@ import ./[webgpu, typed_arrays, init]
 const
   CircleWGSL = staticRead("circle.wgsl")
 
-proc lerp(v0: float32, v1: float32, t: float32): float32 =
+proc lerp(v0, v1, t: float32): float32 =
   (1 - t) * v0 + t * v1
 
-proc main(device: GPUDevice) {.async nimcall.} =
+type Simulation = ref object
+  canvas: CanvasElement
+
+proc main(device: GPUDevice) {.async.} =
   let
     canvas = document.getElementById("canvas").CanvasElement
     rect = canvas.getBoundingClientRect()
@@ -23,28 +26,32 @@ proc main(device: GPUDevice) {.async nimcall.} =
 
   # TODO: Move this to a separate module
   # TODO: delta time
-  var scaleOffset = 1.0
-  var scaleTarget = 1.0
+  var
+    scaleOffset = 1.0
+    scaleTarget = 1.0
 
-  var panOffsetX = 0.0
-  var panOffsetY = 0.0
-  var panVelocityX = 0.0
-  var panVelocityY = 0.0
+    panOffsetX = 0.0
+    panOffsetY = 0.0
+    panVelocityX = 0.0
+    panVelocityY = 0.0
 
-  var lastMouseX = 0.0
-  var lastMouseY = 0.0
-  
-  var currentlyPanning = false
+    lastMouseX = 0.0
+    lastMouseY = 0.0
 
-  var retMouseX = 0.0
-  var retMouseY = 0.0
+    currentlyPanning = false
 
-  var lastMouseMovementTime = window.performance.now()
+    retMouseX = 0.0
+    retMouseY = 0.0
+
+    lastMouseMovementTime = window.performance.now()
+
   proc getMouse(e: MouseEvent) =
-    retMouseX = (e.clientX.float - rect.left) * (canvas.width.float / rect.width.float)
-    retMouseY = (e.clientY.float - rect.top) * (canvas.height.float / rect.height.float)
+    retMouseX =
+      (e.clientX.float - rect.left) * (canvas.width.float / rect.width.float)
+    retMouseY =
+      (e.clientY.float - rect.top) * (canvas.height.float / rect.height.float)
 
-  canvas.addEventListener("mousedown", proc(e: Event) = 
+  canvas.addEventListener("mousedown", proc(e: Event) =
     currentlyPanning = true
     canvas.setAttribute("grabbing", "")
 
@@ -53,7 +60,7 @@ proc main(device: GPUDevice) {.async nimcall.} =
     lastMouseX = retMouseX
     lastMouseY = retMouseY)
 
-  canvas.addEventListener("mouseup", proc(e: Event) = 
+  canvas.addEventListener("mouseup", proc(e: Event) =
     canvas.removeAttribute("grabbing")
 
     if abs(panVelocityX) < devicePixelRatio:
@@ -66,14 +73,16 @@ proc main(device: GPUDevice) {.async nimcall.} =
   canvas.addEventListener("mousemove", proc(e: Event) =
     if currentlyPanning:
       let mouseEvent = e.MouseEvent
-      
+
       getMouse(mouseEvent)
-      let currentMouseX = retMouseX
-      let currentMouseY = retMouseY
+      let
+        currentMouseX = retMouseX
+        currentMouseY = retMouseY
 
       # calculate delta
-      let deltaX = (currentMouseX - lastMouseX)
-      let deltaY = -(currentMouseY - lastMouseY)
+      let
+        deltaX = (currentMouseX - lastMouseX)
+        deltaY = -(currentMouseY - lastMouseY)
 
       # apply delta to pan offsets
       panOffsetX += deltaX
@@ -88,8 +97,8 @@ proc main(device: GPUDevice) {.async nimcall.} =
       lastMouseY = currentMouseY)
 
   type WheelEvent = ref object of MouseEvent
-    deltaY: float32 
-    
+    deltaY: float32
+
   canvas.addEventListener("wheel", proc(e: Event) =
     let wheelEvent = e.WheelEvent
 
@@ -111,7 +120,7 @@ proc main(device: GPUDevice) {.async nimcall.} =
       # TODO: zoom into mouse position
       panOffsetX += (0 - panOffsetX) * factor
       panOffsetY += (0 - panOffsetY) * factor
-      
+
     # pan
 
     if not currentlyPanning:
@@ -153,14 +162,15 @@ proc main(device: GPUDevice) {.async nimcall.} =
       """
     ))
 
-    computePipeline = await device.createComputePipelineAsync(GPUComputePipelineDescriptor(
-      label: "doubling compute pipeline",
-      layout: "auto",
-      compute: GPUComputeDescriptor(
-        entryPoint: "main",
-        module: shaderModule
-      )
-    ))
+    computePipeline =
+      await device.createComputePipelineAsync(GPUComputePipelineDescriptor(
+        label: "doubling compute pipeline",
+        layout: "auto",
+        compute: GPUComputeDescriptor(
+          entryPoint: "main",
+          module: shaderModule
+        )
+      ))
 
   let n = rand(3..1000)
   var input = TypedArray[float32].new(n * 4)
@@ -218,45 +228,48 @@ proc main(device: GPUDevice) {.async nimcall.} =
   #   input.byteLength
   # )
 
-  let module = device.createShaderModule(GPUShaderModuleDescriptor(code: CircleWGSL))
+  var uniform = [canvas.width.float32, canvas.height.float32, 0, 0, 1, 0]
 
-  let pipeline = await device.createRenderPipelineAsync(GPURenderPipelineDescriptor(
-    layout: "auto",
-    vertex: GPUVertex(
-      module: module
-    ),
-    fragment: GPUFragment(
-      module: module,
-      targets: @[
-        GPUTarget(
-          format: presentationFormat,
-          blend: GPUBlend(
-            color: GPUBlendComponent(
-              srcFactor: "src-alpha",
-              dstFactor: "one-minus-src-alpha"
-            ),
-            alpha: GPUBlendComponent(
-              srcFactor: "src-alpha",
-              dstFactor: "one-minus-src-alpha"
+  let
+    module =
+      device.createShaderModule(GPUShaderModuleDescriptor(code: CircleWGSL))
+
+    pipeline =
+      await device.createRenderPipelineAsync(GPURenderPipelineDescriptor(
+        layout: "auto",
+        vertex: GPUVertex(
+          module: module
+        ),
+        fragment: GPUFragment(
+          module: module,
+          targets: @[
+            GPUTarget(
+              format: presentationFormat,
+              blend: GPUBlend(
+                color: GPUBlendComponent(
+                  srcFactor: "src-alpha",
+                  dstFactor: "one-minus-src-alpha"
+                ),
+                alpha: GPUBlendComponent(
+                  srcFactor: "src-alpha",
+                  dstFactor: "one-minus-src-alpha"
+                )
+              )
             )
-          )
+          ]
+        ),
+        primitive: GPUPrimitive(
+          topology: "triangle-list"
         )
-      ]
-    ),
-    primitive: GPUPrimitive(
-      topology: "triangle-list"
-    )
-  ))
+      ))
 
-  let uniform = TypedArray.new(@[canvas.width.float32, canvas.height.float32, 0, 0, 1, 0])
+    uniformBuffer = device.createBuffer(GPUBufferDescriptor(
+      label: "uniform buffer",
+      size: uniform.byteLength,
+      usage: {CopyDst, Uniform}.toInt()
+    ))
 
-  let uniformBuffer = device.createBuffer(GPUBufferDescriptor(
-    label: "uniform buffer",
-    size: uniform.byteLength,
-    usage: {CopyDst, Uniform}.toInt()
-  ))
-
-  let bindGroup = device.createBindGroup(GPUBindGroupDescriptor(
+    bindGroup = device.createBindGroup(GPUBindGroupDescriptor(
       label: "bindGroup for vertex shader",
       layout: pipeline.getBindGroupLayout(0),
       entries: @[
@@ -271,16 +284,16 @@ proc main(device: GPUDevice) {.async nimcall.} =
       ]
     ))
 
-  let renderPassDescriptor = GPURenderPassDescriptor(
-    colorAttachments: @[
-      GPURenderPassColorAttachment(
-        view: nil,
-        clearValue: [0.0, 0.0, 0.0, 0.0], # Clear to transparent black
-        loadOp: "clear",
-        storeOp: "store"
-      )
-    ]
-  )
+    renderPassDescriptor = GPURenderPassDescriptor(
+      colorAttachments: @[
+        GPURenderPassColorAttachment(
+          view: nil,
+          clearValue: [0'f32, 0, 0, 0], # Clear to transparent black
+          loadOp: "clear",
+          storeOp: "store"
+        )
+      ]
+    )
 
   proc frame(time: float) =
     processMomentum()
@@ -288,15 +301,17 @@ proc main(device: GPUDevice) {.async nimcall.} =
     uniform[3] = panOffsetY
     uniform[4] = scaleOffset
     device.queue.writeBuffer(uniformBuffer, 0, uniform)
-      
-    let texture = ctx.getCurrentTexture()
-    let textureView = texture.createView()
+
+    let
+      texture = ctx.getCurrentTexture()
+      textureView = texture.createView()
 
     renderPassDescriptor.colorAttachments[0].view = textureView
 
-    let commandEncoder = device.createCommandEncoder()
+    let
+      commandEncoder = device.createCommandEncoder()
+      passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor)
 
-    let passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor)
     with passEncoder:
       setPipeline(pipeline)
       setBindGroup(0, bindGroup)
@@ -320,4 +335,5 @@ proc main(device: GPUDevice) {.async nimcall.} =
 
   # resultBuffer.unmap()
 
-discard getDeviceAndExecute(main)
+discard getDeviceAndExecute() do (device: GPUDevice):
+  discard main(device)
