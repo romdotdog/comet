@@ -40,6 +40,7 @@ type
   GPUContextConfiguration* = ref object
     device*: GPUDevice
     format*: cstring
+    alphaMode*: cstring = nil
 
   GPUBuffer* {.importjs: "GPUBuffer".} = ref object
 
@@ -50,7 +51,7 @@ type
 
   GPUCommandEncoder* {.importjs: "GPUCommandEncoder".} = ref object
 
-  ShaderModuleDescriptor* = ref object
+  GPUShaderModuleDescriptor* = ref object
     label*: cstring = nil
     code*: cstring
     # hints: 
@@ -69,8 +70,17 @@ type
   GPUVertex* = ref object
     module*: GPUShaderModule
 
+  GPUBlendComponent* = ref object
+    srcFactor*: cstring
+    dstFactor*: cstring
+
+  GPUBlend* = ref object
+    color*: GPUBlendComponent
+    alpha*: GPUBlendComponent
+
   GPUTarget* = ref object
     format*: cstring
+    blend*: GPUBlend
 
   GPUFragment* = ref object
     module*: GPUShaderModule
@@ -148,7 +158,7 @@ proc createBuffer*(
 
 proc createShaderModule*(
   device: GPUDevice,
-  descriptor: ShaderModuleDescriptor
+  descriptor: GPUShaderModuleDescriptor
 ): GPUShaderModule {.importjs: "#.createShaderModule(#)".}
 
 proc createRenderPipeline*(
@@ -214,6 +224,11 @@ proc finish*(
 ): GPUCommandBuffer {.importjs: "#.finish()".}
 
 proc getBindGroupLayout*(
+  pipeline: GPURenderPipeline,
+  index: SomeInteger
+): GPUBindGroupLayout {.importjs: "#.getBindGroupLayout(#)".}
+
+proc getBindGroupLayout*(
   pipeline: GPUComputePipeline,
   index: SomeInteger
 ): GPUBindGroupLayout {.importjs: "#.getBindGroupLayout(#)".}
@@ -227,6 +242,12 @@ proc setPipeline*(
   encoder: GPUComputePassEncoder,
   pipeline: GPUComputePipeline
 ) {.importjs: "#.setPipeline(#)".}
+
+proc setBindGroup*(
+  encoder: GPURenderPassEncoder,
+  index: SomeInteger,
+  bindGroup: GPUBindGroup
+) {.importjs: "#.setBindGroup(#, #)".}
 
 proc setBindGroup*(
   encoder: GPUComputePassEncoder,
@@ -250,8 +271,14 @@ proc copyBufferToBuffer*(
 
 proc draw*(
   encoder: GPURenderPassEncoder,
-  vertexCount: int
+  vertexCount: int,
 ) {.importjs: "#.draw(#)".}
+
+proc draw*(
+  encoder: GPURenderPassEncoder,
+  vertexCount: int,
+  instanceCount: int,
+) {.importjs: "#.draw(#, #)".}
 
 proc `end`*(
   encoder: GPURenderPassEncoder

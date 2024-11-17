@@ -2,15 +2,14 @@ when not defined(js):
   {.fatal: "comet must be compiled with the JavaScript backend.".}
 
 # import jsconsole, jsffi, macros
-import dom, asyncjs, std/with, jsconsole # , sugar
+import dom, asyncjs, std/with, std/random, jsconsole # , sugar
 
 import jscanvas
 
 import ./[webgpu, typed_arrays, init]
 
-# const
-#   TriangleVertWGSL = staticRead("triangle.vert.wgsl")
-#   RedFragWGSL = staticRead("red.frag.wgsl")
+const
+  CircleWGSL = staticRead("circle.wgsl")
 
 proc main(device: GPUDevice) {.async nimcall.} =
   let
@@ -25,7 +24,8 @@ proc main(device: GPUDevice) {.async nimcall.} =
 
   ctx.configure(GPUContextConfiguration(
     device: device,
-    format: presentationFormat
+    format: presentationFormat,
+    alphaMode: "premultiplied"
   ))
 
   # var data {.group: 0, binding: 0, flags: [storage, read_write].}: array[f32]
@@ -35,7 +35,7 @@ proc main(device: GPUDevice) {.async nimcall.} =
   #   data[i] = data[i] * 2
 
   let
-    shaderModule = device.createShaderModule(ShaderModuleDescriptor(
+    shaderModule = device.createShaderModule(GPUShaderModuleDescriptor(
       label: "doubling compute shader",
       code: """
       @group(0) @binding(0) var<storage, read_write> data: array<vec3f>;
@@ -49,7 +49,7 @@ proc main(device: GPUDevice) {.async nimcall.} =
       """
     ))
 
-    pipeline = device.createComputePipeline(GPUComputePipelineDescriptor(
+    computePipeline = device.createComputePipeline(GPUComputePipelineDescriptor(
       label: "doubling compute pipeline",
       layout: "auto",
       compute: GPUComputeDescriptor(
@@ -58,8 +58,17 @@ proc main(device: GPUDevice) {.async nimcall.} =
       )
     ))
 
+  let n = rand(3..1000)
+  var input = TypedArray[float32].new(n * 4)
+
+  for i in 0..<n:
+    input[i * 4] = rand[float32](-1000.0'f32..1000.0'f32)
+    input[i * 4 + 1] = rand[float32](-1000.0'f32..1000.0'f32)
+    input[i * 4 + 2] = rand[float32](10.0'f32..20.0'f32)
+
+  console.log("input", input)
+
   # we have to add zeroes because of padding
-  var input = TypedArray.new(@[1'f32, 3, 5, 0, 1, 3, 5, 0, 1, 3, 5, 0])
 
   let
     workBuffer = device.createBuffer(GPUBufferDescriptor(
@@ -76,88 +85,130 @@ proc main(device: GPUDevice) {.async nimcall.} =
 
   device.queue.writeBuffer(workBuffer, 0, input)
 
-  let
-    bindGroup = device.createBindGroup(GPUBindGroupDescriptor(
-      label: "bindGroup for work buffer",
+  # let
+  #   bindGroup = device.createBindGroup(GPUBindGroupDescriptor(
+  #     label: "bindGroup for work buffer",
+  #     layout: computePipeline.getBindGroupLayout(0),
+  #     entries: @[
+  #       GPUBindGroupEntry(
+  #         binding: 0,
+  #         resource: GPUResourceDescriptor(buffer: workBuffer)
+  #       )
+  #     ]
+  #   ))
+
+  #   encoder = device.createCommandEncoder(label = "doubling encoder")
+  #   pass = encoder.beginComputePass(label = "doublin compute pass")
+
+  # with pass:
+  #   setPipeline(computePipeline)
+  #   setBindGroup(0, bindGroup)
+  #   dispatchWorkgroups(int(input.len / 4))
+  #   `end`()
+
+  # encoder.copyBufferToBuffer(
+  #   workBuffer,
+  #   0,
+  #   resultBuffer,
+  #   0,
+  #   input.byteLength
+  # )
+
+  let module = device.createShaderModule(GPUShaderModuleDescriptor(code: CircleWGSL))
+
+  let pipeline = device.createRenderPipeline(GPURenderPipelineDescriptor(
+    layout: "auto",
+    vertex: GPUVertex(
+      module: module
+    ),
+    fragment: GPUFragment(
+      module: module,
+      targets: @[
+        GPUTarget(
+          format: presentationFormat,
+          blend: GPUBlend(
+            color: GPUBlendComponent(
+              srcFactor: "src-alpha",
+              dstFactor: "one-minus-src-alpha"
+            ),
+            alpha: GPUBlendComponent(
+              srcFactor: "src-alpha",
+              dstFactor: "one-minus-src-alpha"
+            )
+          )
+        )
+      ]
+    ),
+    primitive: GPUPrimitive(
+      topology: "triangle-list"
+    )
+  ))
+
+  let dimensionsBuffer = device.createBuffer(GPUBufferDescriptor(
+    label: "dimensions buffer",
+    size: 16,
+    usage: {CopyDst, Uniform}.toInt()
+  ))
+
+  let dimensions = TypedArray.new(@[canvas.width.float32, canvas.height.float32])
+  device.queue.writeBuffer(dimensionsBuffer, 0, dimensions)
+
+  let bindGroup = device.createBindGroup(GPUBindGroupDescriptor(
+      label: "bindGroup for vertex shader",
       layout: pipeline.getBindGroupLayout(0),
       entries: @[
         GPUBindGroupEntry(
           binding: 0,
+          resource: GPUResourceDescriptor(buffer: dimensionsBuffer)
+        ),
+        GPUBindGroupEntry(
+          binding: 1,
           resource: GPUResourceDescriptor(buffer: workBuffer)
         )
       ]
     ))
 
-    encoder = device.createCommandEncoder(label = "doubling encoder")
-    pass = encoder.beginComputePass(label = "doublin compute pass")
 
-  with pass:
-    setPipeline(pipeline)
-    setBindGroup(0, bindGroup)
-    dispatchWorkgroups(int(input.len / 4))
-    `end`()
-
-  encoder.copyBufferToBuffer(
-    workBuffer,
-    0,
-    resultBuffer,
-    0,
-    input.byteLength
+  let renderPassDescriptor = GPURenderPassDescriptor(
+    colorAttachments: @[
+      GPURenderPassColorAttachment(
+        view: nil,
+        clearValue: [0.0, 0.0, 0.0, 0.0], # Clear to transparent black
+        loadOp: "clear",
+        storeOp: "store"
+      )
+    ]
   )
 
-  let commandBuffer = encoder.finish()
+  let texture = ctx.getCurrentTexture()
+  let textureView = texture.createView()
+
+  renderPassDescriptor.colorAttachments[0].view = textureView
+
+  let commandEncoder = device.createCommandEncoder()
+
+  let passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor)
+  with passEncoder:
+    setPipeline(pipeline)
+    setBindGroup(0, bindGroup)
+    draw(6, n)
+    `end`()
+
+  let commandBuffer = commandEncoder.finish()
 
   device.queue.submit(@[commandBuffer])
 
-  await resultBuffer.mapAsync(Read)
-  let shaderResult = TypedArray[float32].new(resultBuffer.getMappedRange())
+  # await resultBuffer.mapAsync(Read)
+  # let shaderResult = TypedArray[float32].new(resultBuffer.getMappedRange())
 
-  console.log("input", input)
-  console.log("result", shaderResult)
+  # console.log("input", input)
+  # console.log("result", shaderResult)
 
-  resultBuffer.unmap()
+  # resultBuffer.unmap()
 
-  # let pipeline = device.createRenderPipeline(GPURenderPipelineDescriptor(
-  #   layout: "auto",
-  #   vertex: GPUVertex(
-  #     module: device.createShaderModule(TriangleVertWGSL)
-  #   ),
-  #   fragment: GPUFragment(
-  #     module: device.createShaderModule(RedFragWGSL),
-  #     targets: @[
-  #       GPUTarget(format: presentationFormat)
-  #     ]
-  #   ),
-  #   primitive: GPUPrimitive(
-  #     topology: "triangle-list"
-  #   )
-  # ))
-
-  # let renderPassDescriptor = GPURenderPassDescriptor(
-  #   colorAttachments: @[
-  #     GPURenderPassColorAttachment(
-  #       view: nil,
-  #       clearValue: [0.0, 0.0, 0.0, 0.0], # Clear to transparent black
-  #       loadOp: "clear",
-  #       storeOp: "store"
-  #     )
-  #   ]
-  # )
 
   # proc frame(time: float) =
-  #   let texture = ctx.getCurrentTexture()
-  #   let textureView = texture.createView()
-
-  #   renderPassDescriptor.colorAttachments[0].view = textureView
-
-  #   let commandEncoder = device.createCommandEncoder()
-
-  #   let passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor)
-  #   passEncoder.setPipeline(pipeline)
-  #   passEncoder.draw(3)
-  #   passEncoder.end()
-
-  #   device.queue.submit(@[commandEncoder.finish()])
+  #   
   #   discard window.requestAnimationFrame(frame)
 
   # discard window.requestAnimationFrame(frame)
