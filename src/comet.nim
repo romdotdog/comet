@@ -49,7 +49,7 @@ proc main(device: GPUDevice) {.async nimcall.} =
       """
     ))
 
-    computePipeline = device.createComputePipeline(GPUComputePipelineDescriptor(
+    computePipeline = await device.createComputePipelineAsync(GPUComputePipelineDescriptor(
       label: "doubling compute pipeline",
       layout: "auto",
       compute: GPUComputeDescriptor(
@@ -116,7 +116,7 @@ proc main(device: GPUDevice) {.async nimcall.} =
 
   let module = device.createShaderModule(GPUShaderModuleDescriptor(code: CircleWGSL))
 
-  let pipeline = device.createRenderPipeline(GPURenderPipelineDescriptor(
+  let pipeline = await device.createRenderPipelineAsync(GPURenderPipelineDescriptor(
     layout: "auto",
     vertex: GPUVertex(
       module: module

@@ -161,15 +161,15 @@ proc createShaderModule*(
   descriptor: GPUShaderModuleDescriptor
 ): GPUShaderModule {.importjs: "#.createShaderModule(#)".}
 
-proc createRenderPipeline*(
+proc createRenderPipelineAsync*(
   device: GPUDevice,
   descriptor: GPURenderPipelineDescriptor
-): GPURenderPipeline {.importjs: "#.createRenderPipeline(#)".}
+): Future[GPURenderPipeline] {.importjs: "#.createRenderPipelineAsync(#)".}
 
-proc createComputePipeline*(
+proc createComputePipelineAsync*(
   device: GPUDevice,
   descriptor: GPUComputePipelineDescriptor
-): GPUComputePipeline {.importjs: "#.createComputePipeline(#)".}
+): Future[GPUComputePipeline] {.importjs: "#.createComputePipelineAsync(#)".}
 
 proc createBindGroup*(
   device: GPUDevice,
