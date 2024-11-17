@@ -1,6 +1,7 @@
-struct Dimensions {
-    width: f32,
-    height: f32
+struct Uniforms {
+  canvasSize: vec2f,
+  pan: vec2f,
+  zoom: f32
 };
 
 struct Output {
@@ -8,7 +9,7 @@ struct Output {
   @location(0) texcoord: vec2f
 };
 
-@group(0) @binding(0) var<uniform> dimensions: Dimensions;
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var<storage, read> instances: array<vec3f>;
 
 @vertex
@@ -34,7 +35,7 @@ fn vs(
   let size = instances[instanceIndex].z;
   
   let vertexcoord = pos[vertexIndex] * 2.0 - 1.0;
-  let vertex = (vertexcoord * size + center) / vec2(dimensions.width, dimensions.height);
+  let vertex = ((vertexcoord * size + center) * uniforms.zoom + uniforms.pan) / uniforms.canvasSize * 2;
 
   return Output(
     vec4f(vertex, 0.0, 1.0),

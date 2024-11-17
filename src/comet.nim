@@ -2,7 +2,7 @@ when not defined(js):
   {.fatal: "comet must be compiled with the JavaScript backend.".}
 
 # import jsconsole, jsffi, macros
-import dom, asyncjs, std/with, std/random, jsconsole # , sugar
+import dom, asyncjs, std/with, std/random, jsconsole, math # , sugar
 
 import jscanvas
 
@@ -11,14 +11,110 @@ import ./[webgpu, typed_arrays, init]
 const
   CircleWGSL = staticRead("circle.wgsl")
 
+proc lerp(v0: float32, v1: float32, t: float32): float32 =
+  (1 - t) * v0 + t * v1
+
 proc main(device: GPUDevice) {.async nimcall.} =
   let
     canvas = document.getElementById("canvas").CanvasElement
+    rect = canvas.getBoundingClientRect()
     ctx = canvas.getContextWebGPU()
-    devicePixelRatio = window.devicePixelRatio;
+    devicePixelRatio = window.devicePixelRatio
 
-  canvas.width = int(canvas.clientWidth.float * devicePixelRatio)
-  canvas.height = int(canvas.clientHeight.float * devicePixelRatio)
+  # TODO: Move this to a separate module
+  var scaleOffset = 1.0
+  var scaleTarget = 1.0
+
+  var panOffsetX = 0.0
+  var panOffsetY = 0.0
+  var panVelocityX = 0.0
+  var panVelocityY = 0.0
+
+  var lastMouseX = 0.0
+  var lastMouseY = 0.0
+  
+  var currentlyPanning = false
+
+  var retMouseX = 0.0
+  var retMouseY = 0.0
+  proc getMouse(e: MouseEvent) =
+    retMouseX = (e.clientX.float - rect.left) * (canvas.width.float / rect.width.float)
+    retMouseY = (e.clientY.float - rect.top) * (canvas.height.float / rect.height.float)
+
+  canvas.addEventListener("mousedown", proc(e: Event) = 
+    currentlyPanning = true
+    canvas.setAttribute("grabbing", "")
+
+    let mouseEvent = e.MouseEvent
+    getMouse(mouseEvent)
+    lastMouseX = retMouseX
+    lastMouseY = retMouseY)
+
+  canvas.addEventListener("mouseup", proc(e: Event) = 
+    canvas.removeAttribute("grabbing")
+    currentlyPanning = false)
+
+  canvas.addEventListener("mousemove", proc(e: Event) =
+    if currentlyPanning:
+      let mouseEvent = e.MouseEvent
+      
+      getMouse(mouseEvent)
+      let currentMouseX = retMouseX
+      let currentMouseY = retMouseY
+
+      # calculate delta
+      let deltaX = (currentMouseX - lastMouseX)
+      let deltaY = -(currentMouseY - lastMouseY)
+
+      # apply delta to pan offsets
+      panOffsetX += deltaX
+      panOffsetY += deltaY
+
+      # track velocity
+      panVelocityX = lerp(panVelocityX, deltaX, 0.8)
+      panVelocityY = lerp(panVelocityY, deltaY, 0.8)
+
+      # update last mouse position
+      lastMouseX = currentMouseX
+      lastMouseY = currentMouseY
+  )
+
+  type WheelEvent = ref object of MouseEvent
+    deltaY: float32 
+    
+  canvas.addEventListener("wheel", proc(e: Event) =
+    let wheelEvent = e.WheelEvent
+
+    scaleTarget *= pow(1.4, -wheelEvent.deltaY.float32 / 100.0))
+
+  proc processMomentum() =
+    # wheel
+    if scaleTarget < 0.03:
+      scaleTarget = 0.03
+    elif scaleTarget > 4.0:
+      scaleTarget = 4.0
+
+    if abs(scaleOffset - scaleTarget) > 0.01:
+      let old = scaleOffset
+      scaleOffset = lerp(scaleOffset, scaleTarget, 0.9)
+
+      let factor = 1 - scaleOffset / old
+
+      # TODO: zoom into mouse position
+      panOffsetX = panOffsetX + (0 - panOffsetX) * factor
+      panOffsetY = panOffsetY + (0 - panOffsetY) * factor
+      
+    # pan
+
+    if not currentlyPanning:
+      panOffsetX += 2 * panVelocityX
+      panOffsetY += 2 * panVelocityY
+
+      panVelocityX *= 0.9
+      panVelocityY *= 0.9
+
+  canvas.width = int(rect.right.float * devicePixelRatio) - int(rect.left.float * devicePixelRatio)
+  canvas.height = int(rect.bottom.float * devicePixelRatio) - int(rect.top.float * devicePixelRatio)
 
   let presentationFormat = await navigator.gpu.getPreferredCanvasFormat()
 
@@ -62,9 +158,9 @@ proc main(device: GPUDevice) {.async nimcall.} =
   var input = TypedArray[float32].new(n * 4)
 
   for i in 0..<n:
-    input[i * 4] = rand[float32](-1000.0'f32..1000.0'f32)
-    input[i * 4 + 1] = rand[float32](-1000.0'f32..1000.0'f32)
-    input[i * 4 + 2] = rand[float32](10.0'f32..20.0'f32)
+    input[i * 4] = rand[float32](-500.0'f32..500.0'f32)
+    input[i * 4 + 1] = rand[float32](-500.0'f32..500.0'f32)
+    input[i * 4 + 2] = rand[float32](5.0'f32..10.0'f32)
 
   console.log("input", input)
 
@@ -144,14 +240,13 @@ proc main(device: GPUDevice) {.async nimcall.} =
     )
   ))
 
-  let dimensionsBuffer = device.createBuffer(GPUBufferDescriptor(
-    label: "dimensions buffer",
-    size: 16,
+  let uniform = TypedArray.new(@[canvas.width.float32, canvas.height.float32, 0, 0, 1, 0])
+
+  let uniformBuffer = device.createBuffer(GPUBufferDescriptor(
+    label: "uniform buffer",
+    size: uniform.byteLength,
     usage: {CopyDst, Uniform}.toInt()
   ))
-
-  let dimensions = TypedArray.new(@[canvas.width.float32, canvas.height.float32])
-  device.queue.writeBuffer(dimensionsBuffer, 0, dimensions)
 
   let bindGroup = device.createBindGroup(GPUBindGroupDescriptor(
       label: "bindGroup for vertex shader",
@@ -159,7 +254,7 @@ proc main(device: GPUDevice) {.async nimcall.} =
       entries: @[
         GPUBindGroupEntry(
           binding: 0,
-          resource: GPUResourceDescriptor(buffer: dimensionsBuffer)
+          resource: GPUResourceDescriptor(buffer: uniformBuffer)
         ),
         GPUBindGroupEntry(
           binding: 1,
@@ -167,7 +262,6 @@ proc main(device: GPUDevice) {.async nimcall.} =
         )
       ]
     ))
-
 
   let renderPassDescriptor = GPURenderPassDescriptor(
     colorAttachments: @[
@@ -180,23 +274,35 @@ proc main(device: GPUDevice) {.async nimcall.} =
     ]
   )
 
-  let texture = ctx.getCurrentTexture()
-  let textureView = texture.createView()
+  proc frame(time: float) =
+    processMomentum()
+    uniform[2] = panOffsetX
+    uniform[3] = panOffsetY
+    uniform[4] = scaleOffset
+    device.queue.writeBuffer(uniformBuffer, 0, uniform)
+      
+    let texture = ctx.getCurrentTexture()
+    let textureView = texture.createView()
 
-  renderPassDescriptor.colorAttachments[0].view = textureView
+    renderPassDescriptor.colorAttachments[0].view = textureView
 
-  let commandEncoder = device.createCommandEncoder()
+    let commandEncoder = device.createCommandEncoder()
 
-  let passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor)
-  with passEncoder:
-    setPipeline(pipeline)
-    setBindGroup(0, bindGroup)
-    draw(6, n)
-    `end`()
+    let passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor)
+    with passEncoder:
+      setPipeline(pipeline)
+      setBindGroup(0, bindGroup)
+      draw(6, n)
+      `end`()
 
-  let commandBuffer = commandEncoder.finish()
+    let commandBuffer = commandEncoder.finish()
 
-  device.queue.submit(@[commandBuffer])
+    device.queue.submit(@[commandBuffer])
+
+    discard window.requestAnimationFrame(frame)
+
+  discard window.requestAnimationFrame(frame)
+
 
   # await resultBuffer.mapAsync(Read)
   # let shaderResult = TypedArray[float32].new(resultBuffer.getMappedRange())
@@ -205,12 +311,5 @@ proc main(device: GPUDevice) {.async nimcall.} =
   # console.log("result", shaderResult)
 
   # resultBuffer.unmap()
-
-
-  # proc frame(time: float) =
-  #   
-  #   discard window.requestAnimationFrame(frame)
-
-  # discard window.requestAnimationFrame(frame)
 
 discard getDeviceAndExecute(main)
