@@ -25,7 +25,6 @@ proc main(device: GPUDevice) {.async.} =
     devicePixelRatio = window.devicePixelRatio
 
   # TODO: Move this to a separate module
-  # TODO: delta time
   var
     scaleOffset = 1.0
     scaleTarget = 1.0
@@ -42,8 +41,6 @@ proc main(device: GPUDevice) {.async.} =
 
     retMouseX = 0.0
     retMouseY = 0.0
-
-    lastMouseMovementTime = window.performance.now()
 
   proc getMouse(e: MouseEvent) =
     retMouseX =
@@ -101,7 +98,9 @@ proc main(device: GPUDevice) {.async.} =
 
   canvas.addEventListener("wheel", proc(e: Event) =
     let wheelEvent = e.WheelEvent
-
+    getMouse(wheelEvent)
+    lastMouseX = retMouseX
+    lastMouseY = retMouseY
     scaleTarget *= pow(1.4, -wheelEvent.deltaY.float32 / 100.0))
 
   proc processMomentum() =
@@ -117,10 +116,19 @@ proc main(device: GPUDevice) {.async.} =
 
       let factor = 1 - scaleOffset / old
 
-      # TODO: zoom into mouse position
-      panOffsetX += (0 - panOffsetX) * factor
-      panOffsetY += (0 - panOffsetY) * factor
+      # map mouse position to canvas space
 
+      # map x from [0, width] to [-width/2, width/2]
+      let mouseX = lastMouseX - canvas.width/2
+      
+      # map y from [0, height] to [height/2, -height/2]
+      let mouseY = canvas.height/2 - lastMouseY
+
+      # consider whether taking into account the mouse position
+      # while zooming out is inconvenient
+      panOffsetX += (mouseX - panOffsetX) * factor
+      panOffsetY += (mouseY - panOffsetY) * factor
+      
     # pan
 
     if not currentlyPanning:
