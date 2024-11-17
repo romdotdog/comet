@@ -31,10 +31,11 @@ fn vs(
 
   let texcoord = pos[vertexIndex];
 
-  let center = instances[instanceIndex].xy;
-  let size = instances[instanceIndex].z;
+  let instance = instances[instanceIndex];
+  let center = instance.xy;
+  let size = instance.z;
   
-  let vertexcoord = pos[vertexIndex] * 2.0 - 1.0;
+  let vertexcoord = texcoord * 2.0 - 1.0;
   let vertex = ((vertexcoord * size + center) * uniforms.zoom + uniforms.pan) / uniforms.canvasSize * 2;
 
   return Output(

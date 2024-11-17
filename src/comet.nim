@@ -2,7 +2,7 @@ when not defined(js):
   {.fatal: "comet must be compiled with the JavaScript backend.".}
 
 # import jsconsole, jsffi, macros
-import dom, asyncjs, std/with, std/random, jsconsole, math # , sugar
+import dom, asyncjs, std/with, jsconsole, math # , sugar
 
 import jscanvas
 
@@ -16,6 +16,14 @@ proc lerp(v0, v1, t: float32): float32 =
 
 type Simulation = ref object
   canvas: CanvasElement
+
+proc random(): float {.importjs: "Math.random()".}
+
+# override the dom lib so we don't have copies
+proc getBoundingClientRect*(e: Node): ref BoundingRect {.importcpp: "getBoundingClientRect", nodecl.}
+
+# working on 2.2.0
+# proc `+=`(a: float, b: float) {.importjs: "# += #".}
 
 proc main(device: GPUDevice) {.async.} =
   let
@@ -124,7 +132,7 @@ proc main(device: GPUDevice) {.async.} =
       # map y from [0, height] to [height/2, -height/2]
       let mouseY = canvas.height/2 - lastMouseY
 
-      # consider whether taking into account the mouse position
+      # TODO: consider whether taking into account the mouse position
       # while zooming out is inconvenient
       panOffsetX += (mouseX - panOffsetX) * factor
       panOffsetY += (mouseY - panOffsetY) * factor
@@ -180,13 +188,13 @@ proc main(device: GPUDevice) {.async.} =
         )
       ))
 
-  let n = rand(3..1000)
+  let n = int(random() * 1000 + 3)
   var input = TypedArray[float32].new(n * 4)
 
   for i in 0..<n:
-    input[i * 4] = rand[float32](-500.0'f32..500.0'f32)
-    input[i * 4 + 1] = rand[float32](-500.0'f32..500.0'f32)
-    input[i * 4 + 2] = rand[float32](5.0'f32..10.0'f32)
+    input[i * 4] = random() * 1000 - 500
+    input[i * 4 + 1] = random() * 1000 - 500
+    input[i * 4 + 2] = random() * 5 + 5
 
   console.log("input", input)
 
@@ -236,7 +244,7 @@ proc main(device: GPUDevice) {.async.} =
   #   input.byteLength
   # )
 
-  var uniform = [canvas.width.float32, canvas.height.float32, 0, 0, 1, 0]
+  var uniform = TypedArray[float32].new(@[canvas.width.float32, canvas.height.float32, 0, 0, 1, 0])
 
   let
     module =
