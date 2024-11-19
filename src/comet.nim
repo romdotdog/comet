@@ -244,7 +244,7 @@ proc main(device: GPUDevice) {.async.} =
   #   input.byteLength
   # )
 
-  var uniform = TypedArray[float32].new(@[canvas.width.float32, canvas.height.float32, 0, 0, 1, 0])
+  var uniform = TypedArray[float32].new(@[canvas.width.float32, canvas.height.float32, panOffsetX, panOffsetY, lastMouseX, lastMouseY, 1, 0])
 
   let
     module =
@@ -304,7 +304,7 @@ proc main(device: GPUDevice) {.async.} =
       colorAttachments: @[
         GPURenderPassColorAttachment(
           view: nil,
-          clearValue: [0'f32, 0, 0, 0], # Clear to transparent black
+          clearValue: [0.1'f32, 0.1, 0.1, 1], # Clear to transparent black
           loadOp: "clear",
           storeOp: "store"
         )
@@ -315,7 +315,9 @@ proc main(device: GPUDevice) {.async.} =
     processMomentum()
     uniform[2] = panOffsetX
     uniform[3] = panOffsetY
-    uniform[4] = scaleOffset
+    uniform[4] = lastMouseX
+    uniform[5] = lastMouseY
+    uniform[6] = scaleOffset
     device.queue.writeBuffer(uniformBuffer, 0, uniform)
 
     let
