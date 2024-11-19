@@ -5,30 +5,35 @@ struct Uniforms {
   zoom: f32
 };
 
-struct Output {
+struct VertexOutput {
   @builtin(position) position: vec4f,
   @location(0) color: vec4f,
   @location(1) texcoord: vec2f
 };
 
+struct Output {
+  @location(0) hovering: u32
+}
+
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var<storage, read> instances: array<vec3f>;
+@group(0) @binding(2) var<storage, read_write> data: Output;
 
 @vertex
 fn vs(
   @builtin(vertex_index) vertexIndex: u32,
   @builtin(instance_index) instanceIndex: u32
-) -> Output {
+) -> VertexOutput {
   let pos = array(
     // 1st triangle
-    vec2f( 0.0,  0.0),  // left, top
-    vec2f( 1.0,  0.0),  // right, center
-    vec2f( 0.0,  1.0),  // center, top
+    vec2f(0.0,  0.0),  // left, top
+    vec2f(1.0,  0.0),  // right, center
+    vec2f(0.0,  1.0),  // center, top
  
     // 2nd triangle
-    vec2f( 0.0,  1.0),  // center, top
-    vec2f( 1.0,  0.0),  // right, center
-    vec2f( 1.0,  1.0),  // right, top
+    vec2f(0.0,  1.0),  // center, top
+    vec2f(1.0,  0.0),  // right, center
+    vec2f(1.0,  1.0),  // right, top
   );
 
   let texcoord = pos[vertexIndex];
@@ -40,10 +45,10 @@ fn vs(
   let vertexcoord = texcoord * 2.0 - 1.0;
   let vertex = ((vertexcoord * size + center) * uniforms.zoom + uniforms.pan) / uniforms.canvasSize * 2;
 
-  let hovered = distance(center * uniforms.zoom + uniforms.pan, vec2(uniforms.cursor.x - uniforms.canvasSize.x / 2, uniforms.canvasSize.y / 2 - uniforms.cursor.y)) < size * uniforms.zoom;
+  let hovered = distance(center * uniforms.zoom + uniforms.pan, vec2(uniforms.cursor.x - uniforms.canvasSize.x / 2, uniforms.canvasSize.y / 2 - uniforms.cursor.y)) < size * uniforms.zoom;  
   let color = mix(vec4(0.7, 0.7, 0.7, 1.0), vec4(1.0, 0.3, 0.3, 1.0), f32(hovered));
 
-  return Output(
+  return VertexOutput(
     vec4f(vertex, 0.0, 1.0),
     color,
     texcoord
@@ -58,6 +63,7 @@ fn circle(st: vec2f, radius: f32) -> f32 {
 }
 
 @fragment
-fn fs(fsInput: Output) -> @location(0) vec4f {
+fn fs(fsInput: VertexOutput) -> @location(0) vec4f {
+  data.hovering |= u32(fsInput.color.x == 1.0);
   return mix(vec4(0), fsInput.color, circle(fsInput.texcoord, 1.0));
 }

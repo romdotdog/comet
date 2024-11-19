@@ -260,6 +260,11 @@ proc dispatchWorkgroups*(
   count: Natural
 ) {.importjs: "#.dispatchWorkgroups(#)".}
 
+proc clearBuffer*(
+  encoder: GPUCommandEncoder,
+  buffer: GPUBuffer,
+) {.importjs: "#.clearBuffer(#)".}
+
 proc copyBufferToBuffer*(
   encoder: GPUCommandEncoder,
   source: GPUBuffer,
@@ -312,7 +317,7 @@ proc writeBuffer*(
 proc mapAsync*(
   buffer: GPUBuffer,
   mode: GPUMapMode
-): Future[void] {.importjs: "#.mapAsync(#)".}
+): Future[ArrayBuffer] {.importjs: "#.mapAsync(#)".}
 
 # TODO: Bind getMappedRange/2, getMappedRange/3
 proc getMappedRange*(

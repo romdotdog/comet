@@ -20,7 +20,14 @@ func new*(
   items: ArrayBuffer
 ): TypedArray[float32] {.importjs: "new Float32Array(@)".}
 
+func new*(
+  typedArray: typedesc[TypedArray[uint32]],
+  items: ArrayBuffer
+): TypedArray[uint32] {.importjs: "new Uint32Array(@)".}
+
+
 proc `[]=`*[T](typedArray: TypedArray[T], index: int, value: T) {.importjs: "#[#] = #".}
+proc `[]`*[T](typedArray: TypedArray[T], index: int): T {.importjs: "#[#]".}
 
 func byteLength*[T](typedArray: TypedArray[T]): int {.importjs: "#.byteLength".}
 func len*[T](typedArray: TypedArray[T]): int {.importjs: "#.length".}

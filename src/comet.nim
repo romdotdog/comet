@@ -207,9 +207,15 @@ proc main(device: GPUDevice) {.async.} =
       usage: {GPUBufferUsage.Storage, CopySrc, CopyDst}.toInt()
     ))
 
+    outBuffer = device.createBuffer(GPUBufferDescriptor(
+      label: "out buffer",
+      size: 4,
+      usage: {GPUBufferUsage.Storage, CopySrc, CopyDst}.toInt()
+    ))
+
     resultBuffer = device.createBuffer(GPUBufferDescriptor(
       label: "result buffer",
-      size: input.byteLength,
+      size: 4,
       usage: {MapRead, CopyDst}.toInt()
     ))
 
@@ -296,6 +302,10 @@ proc main(device: GPUDevice) {.async.} =
         GPUBindGroupEntry(
           binding: 1,
           resource: GPUResourceDescriptor(buffer: workBuffer)
+        ),
+        GPUBindGroupEntry(
+          binding: 2,
+          resource: GPUResourceDescriptor(buffer: outBuffer)
         )
       ]
     ))
@@ -311,7 +321,7 @@ proc main(device: GPUDevice) {.async.} =
       ]
     )
 
-  proc frame(time: float) =
+  proc frame() {.async.} =
     processMomentum()
     uniform[2] = panOffsetX
     uniform[3] = panOffsetY
@@ -328,7 +338,10 @@ proc main(device: GPUDevice) {.async.} =
 
     let
       commandEncoder = device.createCommandEncoder()
-      passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor)
+
+    commandEncoder.clearBuffer(outBuffer)
+
+    let passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor)
 
     with passEncoder:
       setPipeline(pipeline)
@@ -336,13 +349,32 @@ proc main(device: GPUDevice) {.async.} =
       draw(6, n)
       `end`()
 
+    commandEncoder.copyBufferToBuffer(
+      outBuffer,
+      0,
+      resultBuffer,
+      0,
+      4
+    )
+
     let commandBuffer = commandEncoder.finish()
 
     device.queue.submit(@[commandBuffer])
 
-    discard window.requestAnimationFrame(frame)
+  
+    discard await resultBuffer.mapAsync(Read)
+    let shaderResult = TypedArray[uint32].new(resultBuffer.getMappedRange())
+    if shaderResult[0] == 1:
+      canvas.setAttribute("pointing", "")
+    else:
+      canvas.removeAttribute("pointing")
+    
+    # console.log("result", shaderResult[0])
+    resultBuffer.unmap()
 
-  discard window.requestAnimationFrame(frame)
+    discard window.requestAnimationFrame(proc(time: float) {.closure.} = discard frame())
+
+  discard window.requestAnimationFrame(proc(time: float) {.closure.} = discard frame())
 
 
   # await resultBuffer.mapAsync(Read)
