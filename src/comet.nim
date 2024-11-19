@@ -42,8 +42,8 @@ proc main(device: GPUDevice) {.async.} =
     panVelocityX = 0.0
     panVelocityY = 0.0
 
-    lastMouseX = 0.0
-    lastMouseY = 0.0
+    mouseX = 0.0
+    mouseY = 0.0
 
     currentlyPanning = false
 
@@ -62,8 +62,8 @@ proc main(device: GPUDevice) {.async.} =
 
     let mouseEvent = e.MouseEvent
     getMouse(mouseEvent)
-    lastMouseX = retMouseX
-    lastMouseY = retMouseY)
+    mouseX = retMouseX
+    mouseY = retMouseY)
 
   canvas.addEventListener("mouseup", proc(e: Event) =
     canvas.removeAttribute("grabbing")
@@ -76,18 +76,18 @@ proc main(device: GPUDevice) {.async.} =
     currentlyPanning = false)
 
   canvas.addEventListener("mousemove", proc(e: Event) =
+    let mouseEvent = e.MouseEvent
+
+    getMouse(mouseEvent)
+    let
+      currentMouseX = retMouseX
+      currentMouseY = retMouseY
+      
     if currentlyPanning:
-      let mouseEvent = e.MouseEvent
-
-      getMouse(mouseEvent)
-      let
-        currentMouseX = retMouseX
-        currentMouseY = retMouseY
-
       # calculate delta
       let
-        deltaX = (currentMouseX - lastMouseX)
-        deltaY = -(currentMouseY - lastMouseY)
+        deltaX = (currentMouseX - mouseX)
+        deltaY = -(currentMouseY - mouseY)
 
       # apply delta to pan offsets
       panOffsetX += deltaX
@@ -96,10 +96,10 @@ proc main(device: GPUDevice) {.async.} =
       # track velocity
       panVelocityX = lerp(panVelocityX, deltaX, 0.8)
       panVelocityY = lerp(panVelocityY, deltaY, 0.8)
-
-      # update last mouse position
-      lastMouseX = currentMouseX
-      lastMouseY = currentMouseY)
+      
+    # update mouse position
+    mouseX = currentMouseX
+    mouseY = currentMouseY)
 
   type WheelEvent = ref object of MouseEvent
     deltaY: float32
@@ -107,8 +107,8 @@ proc main(device: GPUDevice) {.async.} =
   canvas.addEventListener("wheel", proc(e: Event) =
     let wheelEvent = e.WheelEvent
     getMouse(wheelEvent)
-    lastMouseX = retMouseX
-    lastMouseY = retMouseY
+    mouseX = retMouseX
+    mouseY = retMouseY
     scaleTarget *= pow(1.4, -wheelEvent.deltaY.float32 / 100.0))
 
   proc processMomentum() =
@@ -127,10 +127,10 @@ proc main(device: GPUDevice) {.async.} =
       # map mouse position to canvas space
 
       # map x from [0, width] to [-width/2, width/2]
-      let mouseX = lastMouseX - canvas.width/2
+      let mouseX = mouseX - canvas.width/2
       
       # map y from [0, height] to [height/2, -height/2]
-      let mouseY = canvas.height/2 - lastMouseY
+      let mouseY = canvas.height/2 - mouseY
 
       # TODO: consider whether taking into account the mouse position
       # while zooming out is inconvenient
@@ -244,7 +244,7 @@ proc main(device: GPUDevice) {.async.} =
   #   input.byteLength
   # )
 
-  var uniform = TypedArray[float32].new(@[canvas.width.float32, canvas.height.float32, panOffsetX, panOffsetY, lastMouseX, lastMouseY, 1, 0])
+  var uniform = TypedArray[float32].new(@[canvas.width.float32, canvas.height.float32, panOffsetX, panOffsetY, mouseX, mouseY, 1, 0])
 
   let
     module =
@@ -315,8 +315,8 @@ proc main(device: GPUDevice) {.async.} =
     processMomentum()
     uniform[2] = panOffsetX
     uniform[3] = panOffsetY
-    uniform[4] = lastMouseX
-    uniform[5] = lastMouseY
+    uniform[4] = mouseX
+    uniform[5] = mouseY
     uniform[6] = scaleOffset
     device.queue.writeBuffer(uniformBuffer, 0, uniform)
 
