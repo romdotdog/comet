@@ -46,7 +46,7 @@ fn vs(
   let vertexcoord = texcoord * 2.0 - 1.0;
   let vertex = ((vertexcoord * size + center) * uniforms.zoom + uniforms.pan) / uniforms.canvasSize * 2;
 
-  let hovered = distance(center * uniforms.zoom + uniforms.pan, vec2(uniforms.cursor.x - uniforms.canvasSize.x / 2, uniforms.canvasSize.y / 2 - uniforms.cursor.y)) < size * uniforms.zoom;  
+  let hovered = distance(center * uniforms.zoom + uniforms.pan, uniforms.cursor - uniforms.canvasSize / 2) < size * uniforms.zoom;  
   let color = mix(vec4(0.7, 0.7, 0.7, 1.0), vec4(1.0, 0.3, 0.3, 1.0), f32(hovered));
 
   return VertexOutput(
@@ -66,7 +66,7 @@ fn circle(st: vec2f, radius: f32) -> f32 {
 
 @fragment
 fn fs(fsInput: VertexOutput) -> @location(0) vec4f {
-  if (data.hovering == 0 && fsInput.hovering == 1) {
+  if (fsInput.hovering == 1) {
     data.hovering = 1;
   }
   return mix(vec4(0), fsInput.color, circle(fsInput.texcoord, 1.0));

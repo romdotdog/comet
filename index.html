@@ -22,10 +22,18 @@
             canvas[pointing], canvas[grabbing][pointing] {
                 cursor: pointer;
             }
+
+            #timing {
+                color: white;
+                position: absolute;
+                top: 5px;
+                left: 5px;
+            }
         </style>
     </head>
     <body>
         <canvas id="canvas"></canvas>
+        <span id="timing"></span>
         <script src="comet.js" defer></script>
     </body>
 </html>

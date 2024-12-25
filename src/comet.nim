@@ -27,6 +27,7 @@ proc getBoundingClientRect*(e: Node): ref BoundingRect {.importcpp: "getBounding
 
 proc main(device: GPUDevice) {.async.} =
   let
+    timing = document.getElementById("timing")
     canvas = document.getElementById("canvas").CanvasElement
     rect = canvas.getBoundingClientRect()
     ctx = canvas.getContextWebGPU()
@@ -54,7 +55,7 @@ proc main(device: GPUDevice) {.async.} =
     retMouseX =
       (e.clientX.float - rect.left) * (canvas.width.float / rect.width.float)
     retMouseY =
-      (e.clientY.float - rect.top) * (canvas.height.float / rect.height.float)
+      (rect.height.float - e.clientY.float - rect.top) * (canvas.height.float / rect.height.float)
 
   canvas.addEventListener("mousedown", proc(e: Event) =
     currentlyPanning = true
@@ -82,12 +83,14 @@ proc main(device: GPUDevice) {.async.} =
     let
       currentMouseX = retMouseX
       currentMouseY = retMouseY
+
+    console.log(currentMouseX, currentMouseY)
       
     if currentlyPanning:
       # calculate delta
       let
         deltaX = (currentMouseX - mouseX)
-        deltaY = -(currentMouseY - mouseY)
+        deltaY = (currentMouseY - mouseY)
 
       # apply delta to pan offsets
       panOffsetX += deltaX
@@ -129,8 +132,8 @@ proc main(device: GPUDevice) {.async.} =
       # map x from [0, width] to [-width/2, width/2]
       let mouseX = mouseX - canvas.width/2
       
-      # map y from [0, height] to [height/2, -height/2]
-      let mouseY = canvas.height/2 - mouseY
+      # map y from [0, height] to [-height/2, height/2]
+      let mouseY = mouseY - canvas.height/2
 
       # TODO: consider whether taking into account the mouse position
       # while zooming out is inconvenient
@@ -188,7 +191,7 @@ proc main(device: GPUDevice) {.async.} =
         )
       ))
 
-  let n = int(random() * 1000 + 3)
+  let n = 1000 #int(random() * 1000 + 3)
   var input = TypedArray[float32].new(n * 4)
 
   for i in 0..<n:
@@ -321,7 +324,11 @@ proc main(device: GPUDevice) {.async.} =
       ]
     )
 
-  proc frame() {.async.} =
+  var prevTime = 0.0
+  proc frame(time: float) {.async.} =
+    let dt = time - prevTime
+    prevTime = time
+
     processMomentum()
     uniform[2] = panOffsetX
     uniform[3] = panOffsetY
@@ -360,7 +367,6 @@ proc main(device: GPUDevice) {.async.} =
     let commandBuffer = commandEncoder.finish()
 
     device.queue.submit(@[commandBuffer])
-
   
     discard await resultBuffer.mapAsync(Read)
     let shaderResult = TypedArray[uint32].new(resultBuffer.getMappedRange())
@@ -371,10 +377,12 @@ proc main(device: GPUDevice) {.async.} =
     
     # console.log("result", shaderResult[0])
     resultBuffer.unmap()
+ 
+    timing.textContent = $round(1000 / dt, 1)
 
-    discard window.requestAnimationFrame(proc(time: float) {.closure.} = discard frame())
+    discard window.requestAnimationFrame(proc(time: float) {.closure.} = discard frame(time))
 
-  discard window.requestAnimationFrame(proc(time: float) {.closure.} = discard frame())
+  discard window.requestAnimationFrame(proc(time: float) {.closure.} = discard frame(time))
 
 
   # await resultBuffer.mapAsync(Read)
