@@ -8,7 +8,8 @@ struct Uniforms {
 struct VertexOutput {
   @builtin(position) position: vec4f,
   @location(0) color: vec4f,
-  @location(1) texcoord: vec2f
+  @location(1) texcoord: vec2f,
+  @interpolate(flat) @location(2) hovering: u32
 };
 
 struct Output {
@@ -51,7 +52,8 @@ fn vs(
   return VertexOutput(
     vec4f(vertex, 0.0, 1.0),
     color,
-    texcoord
+    texcoord,
+    u32(hovered)
   );
 }
 
@@ -64,6 +66,8 @@ fn circle(st: vec2f, radius: f32) -> f32 {
 
 @fragment
 fn fs(fsInput: VertexOutput) -> @location(0) vec4f {
-  data.hovering |= u32(fsInput.color.x == 1.0);
+  if (data.hovering == 0 && fsInput.hovering == 1) {
+    data.hovering = 1;
+  }
   return mix(vec4(0), fsInput.color, circle(fsInput.texcoord, 1.0));
 }
