@@ -8,8 +8,8 @@ import jscanvas
 
 import ./[vec, webgpu, typed_arrays, init]
 
-const
-  CircleWGSL = staticRead("circle.wgsl")
+const CanvasShader = staticRead("canvas.wgsl")
+const ComputeShader = staticRead("compute.wgsl")
 
 proc lerp(v0, v1, t: float32): float32 =
   (1 - t) * v0 + t * v1
@@ -36,6 +36,78 @@ func toBLCanvasCoords(pos: Vec2f, rect: ref BoundingRect, canvas: CanvasElement)
   result /= rect.size # [0, 1]
   result.y = 1 - result.y # invert y coordinate (0 means bottom)
   result *= canvas.size # [0, canvas size]
+
+proc compute(device: GPUDevice) {.async.} =
+  let
+    shaderModule = device.createShaderModule(GPUShaderModuleDescriptor(label: "compute shader", code: ComputeShader))
+
+    computePipeline =
+      await device.createComputePipelineAsync(GPUComputePipelineDescriptor(
+        label: "compute pipeline",
+        layout: "auto",
+        compute: GPUComputeDescriptor(
+          entryPoint: "main",
+          module: shaderModule
+        )
+      ))
+
+  var input = TypedArray.new(@[1'f32, 3, 5, 0, 1, 3, 5, 0, 1, 3, 5, 0])
+
+  let
+    workBuffer = device.createBuffer(GPUBufferDescriptor(
+      label: "work buffer",
+      size: input.byteLength,
+      usage: {GPUBufferUsage.Storage, CopySrc, CopyDst}.toInt()
+    ))
+
+    resultBuffer = device.createBuffer(GPUBufferDescriptor(
+      label: "result buffer",
+      size: input.byteLength,
+      usage: {MapRead, CopyDst}.toInt()
+    ))
+
+  device.queue.writeBuffer(workBuffer, 0, input)
+
+  let
+    bindGroup = device.createBindGroup(GPUBindGroupDescriptor(
+      label: "bindGroup for work buffer",
+      layout: computePipeline.getBindGroupLayout(0),
+      entries: @[
+        GPUBindGroupEntry(
+          binding: 0,
+          resource: GPUResourceDescriptor(buffer: workBuffer)
+        )
+      ]
+    ))
+
+    encoder = device.createCommandEncoder()
+    pass = encoder.beginComputePass()
+
+  with pass:
+    setPipeline(computePipeline)
+    setBindGroup(0, bindGroup)
+    dispatchWorkgroups(int(input.len / 4))
+    `end`()
+
+  encoder.copyBufferToBuffer(
+    workBuffer,
+    0,
+    resultBuffer,
+    0,
+    input.byteLength
+  )
+
+  let commandBuffer = encoder.finish()
+  
+  device.queue.submit(@[commandBuffer])
+
+  discard await resultBuffer.mapAsync(Read)
+  let shaderResult = TypedArray[float32].new(resultBuffer.getMappedRange())
+
+  console.log("input", input)
+  console.log("result", shaderResult)
+
+  resultBuffer.unmap()
 
 proc main(device: GPUDevice) {.async.} =
   let
@@ -136,36 +208,13 @@ proc main(device: GPUDevice) {.async.} =
     alphaMode: "premultiplied"
   ))
 
+  await compute(device)
+
   # var data {.group: 0, binding: 0, flags: [storage, read_write].}: array[f32]
 
   # proc main(id {.builtin: global_invocation_id.}: vec3u) {.compute, workgroup_size: 1.} =
   #   let i = id.x
   #   data[i] = data[i] * 2
-
-  let
-    shaderModule = device.createShaderModule(GPUShaderModuleDescriptor(
-      label: "doubling compute shader",
-      code: """
-      @group(0) @binding(0) var<storage, read_write> data: array<vec3f>;
-
-      @compute @workgroup_size(1) fn main(
-        @builtin(global_invocation_id) id: vec3u
-      ) {
-        let i = id.x;
-        data[i] = data[i] * 2;
-      }
-      """
-    ))
-
-    computePipeline =
-      await device.createComputePipelineAsync(GPUComputePipelineDescriptor(
-        label: "doubling compute pipeline",
-        layout: "auto",
-        compute: GPUComputeDescriptor(
-          entryPoint: "main",
-          module: shaderModule
-        )
-      ))
 
   let n = 1000 #int(random() * 1000 + 3)
   var input = TypedArray[float32].new(n * 4)
@@ -200,35 +249,6 @@ proc main(device: GPUDevice) {.async.} =
 
   device.queue.writeBuffer(workBuffer, 0, input)
 
-  # let
-  #   bindGroup = device.createBindGroup(GPUBindGroupDescriptor(
-  #     label: "bindGroup for work buffer",
-  #     layout: computePipeline.getBindGroupLayout(0),
-  #     entries: @[
-  #       GPUBindGroupEntry(
-  #         binding: 0,
-  #         resource: GPUResourceDescriptor(buffer: workBuffer)
-  #       )
-  #     ]
-  #   ))
-
-  #   encoder = device.createCommandEncoder(label = "doubling encoder")
-  #   pass = encoder.beginComputePass(label = "doublin compute pass")
-
-  # with pass:
-  #   setPipeline(computePipeline)
-  #   setBindGroup(0, bindGroup)
-  #   dispatchWorkgroups(int(input.len / 4))
-  #   `end`()
-
-  # encoder.copyBufferToBuffer(
-  #   workBuffer,
-  #   0,
-  #   resultBuffer,
-  #   0,
-  #   input.byteLength
-  # )
-
   var uniform = TypedArray[float32].new(@[
     canvas.width.float32,
     canvas.height.float32,
@@ -242,7 +262,7 @@ proc main(device: GPUDevice) {.async.} =
 
   let
     module =
-      device.createShaderModule(GPUShaderModuleDescriptor(code: CircleWGSL))
+      device.createShaderModule(GPUShaderModuleDescriptor(code: CanvasShader))
 
     pipeline =
       await device.createRenderPipelineAsync(GPURenderPipelineDescriptor(
@@ -369,14 +389,6 @@ proc main(device: GPUDevice) {.async.} =
 
   discard window.requestAnimationFrame() do (time: float): discard frame(time)
 
-
-  # await resultBuffer.mapAsync(Read)
-  # let shaderResult = TypedArray[float32].new(resultBuffer.getMappedRange())
-
-  # console.log("input", input)
-  # console.log("result", shaderResult)
-
-  # resultBuffer.unmap()
 
 discard getDeviceAndExecute() do (device: GPUDevice):
   discard main(device)
