@@ -61,6 +61,17 @@ func `-`*[T](a, b: Vec2[T]): Vec2[T] =
   result = vec2(a)
   result -= b
 
+func `*=`*[T](a, b: Vec2[T]) =
+  a.x = a.x * b.x
+  a.y = a.y * b.y
+
+func `/=`*[T](a, b: Vec2[T]) =
+  a.x /= b.x
+  a.y /= b.y
+func `/`*[T](a, b: Vec2[T]): Vec2[T] =
+  result = vec2(a)
+  result /= b
+
 func `*=.`*[T](a: Vec2[T], s: T) =
   a.x *= s
   a.y *= s
@@ -74,10 +85,6 @@ func `/=.`*[T](a: Vec2[T], s: T) =
 func `/.`*[T](a: Vec2[T], s: T): Vec2[T] =
   result = vec2(a)
   result /=. s
-
-func `*=`*[T](a, b: Vec2[T]) =
-  a.x = a.x * b.x
-  a.y = a.y * b.y
 
 func to*[T1, T2](a: Vec2[T1], _: typedesc[T2]): Vec2[T2] =
   vec2(T2(a.x), T2(a.y))

@@ -2,7 +2,7 @@ when not defined(js):
   {.fatal: "comet must be compiled with the JavaScript backend.".}
 
 # import jsconsole, jsffi, macros
-import dom, asyncjs, std/with, jsconsole, math, sugar
+import dom, asyncjs, std/with, jsconsole, math
 
 import jscanvas
 
@@ -24,21 +24,17 @@ proc getBoundingClientRect*(
   e: Node
 ): ref BoundingRect {.importcpp: "getBoundingClientRect", nodecl.}
 
-# working on 2.2.0
-# proc `+=`(a: float, b: float) {.importjs: "# += #".}
-
-func coordinates(rect: ref BoundingRect): Vec2f = vec2(rect.left, rect.top)
+func offset(rect: ref BoundingRect): Vec2f = vec2(rect.left, rect.top)
 func size(rect: ref BoundingRect): Vec2f = vec2(rect.width, rect.height)
+func size(canvas: CanvasElement): Vec2f = vec2(canvas.width.float, canvas.height.float)
+func position(e: MouseEvent): Vec2f = vec2(e.clientX.float, e.clientY.float)
 
-func getMouse(pos: Vec2f, rect: ref BoundingRect, aspectRatio: float): Vec2f =
-  result = vec2(pos.x, -pos.y)
-  result.y += rect.height.float
-  result -= rect.coordinates()
-  result.x *= aspectRatio
-  result.y /= aspectRatio
-
-func coordinates(e: MouseEvent): Vec2f =
-  vec2(e.clientX.float, e.clientY.float)
+# converts mouse position from top left to canvas space from bottom left
+func toBLCanvasCoords(pos: Vec2f, rect: ref BoundingRect, canvas: CanvasElement): Vec2f =
+  result = vec2(pos.x, rect.height.float - pos.y)
+  result -= rect.offset
+  result /= rect.size
+  result *= canvas.size
 
 proc main(device: GPUDevice) {.async.} =
   let
@@ -47,7 +43,6 @@ proc main(device: GPUDevice) {.async.} =
     rect = canvas.getBoundingClientRect()
     ctx = canvas.getContextWebGPU()
     devicePixelRatio = window.devicePixelRatio
-    aspectRatio = canvas.width.float / canvas.height.float
 
   # TODO: Move this to a separate module
   var
@@ -56,13 +51,12 @@ proc main(device: GPUDevice) {.async.} =
     panOffset = default Vec2f
     panVelocity = default Vec2f
     mouse = default Vec2f
-    retMouse = default Vec2f
     currentlyPanning = false
 
   canvas.addEventListener("mousedown", proc(e: Event) =
     currentlyPanning = true
     canvas.setAttribute("grabbing", "")
-    mouse @= e.MouseEvent.coordinates().getMouse(rect, aspectRatio))
+    mouse @= MouseEvent(e).position.toBLCanvasCoords(rect, canvas))
 
   canvas.addEventListener("mouseup", proc(e: Event) =
     canvas.removeAttribute("grabbing")
@@ -75,17 +69,16 @@ proc main(device: GPUDevice) {.async.} =
     currentlyPanning = false)
 
   canvas.addEventListener("mousemove", proc(e: Event) =
-    let currentMouse = e.MouseEvent.coordinates().getMouse(rect, aspectRatio)
+    let currentMouse = e.MouseEvent.position.toBLCanvasCoords(rect, canvas)
     # console.log(currentMouse.x, currentMouse.y)
     if currentlyPanning:
       # calculate delta
       var delta = currentMouse - mouse
       # apply delta to pan offsets
-      delta.y = -delta.y
       panOffset += delta
       # track velocity
-      panVelocity.x = lerp(panVelocity.x, delta.x, 0.8)
-      panVelocity.y = lerp(panVelocity.x, delta.y, 0.8)
+      panVelocity.x = lerp(panVelocity.x, delta.x, 0.8) # TODO: make lerp work on vecs?
+      panVelocity.y = lerp(panVelocity.y, delta.y, 0.8)
 
     # update mouse position
     mouse @= currentMouse)
@@ -95,7 +88,7 @@ proc main(device: GPUDevice) {.async.} =
 
   canvas.addEventListener("wheel", proc(e: Event) =
     let wheelEvent = e.WheelEvent
-    mouse @= wheelEvent.WheelEvent.coordinates().getMouse(rect, aspectRatio)
+    mouse @= wheelEvent.position().toBLCanvasCoords(rect, canvas)
     scaleTarget *= pow(1.4, -wheelEvent.deltaY.float32 / 100.0))
 
   proc processMomentum() =
@@ -111,22 +104,19 @@ proc main(device: GPUDevice) {.async.} =
 
       let factor = 1 - scaleOffset / old
 
-      # map mouse position to canvas space
-
+      # map mouse position to canvas clip space
       # map x from [0, width] to [-width/2, width/2]
       # map y from [0, height] to [-height/2, height/2]
-      let mouse =
-        vec2(mouse.x, mouse.y) -
-        vec2(canvas.width, canvas.height).to(float) /. 2.0
+      let mouseClip = mouse - canvas.size /. 2.0
 
       # TODO: consider whether taking into account the mouse position
       # while zooming out is inconvenient
-      panOffset @= (mouse - panOffset) *. factor
+      panOffset += (mouseClip - panOffset) *. factor
 
     # pan
 
     if not currentlyPanning:
-      panOffset += panOffset *. 2
+      panOffset += panVelocity *. 2
 
     panVelocity *=. 0.9
 
