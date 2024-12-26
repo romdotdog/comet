@@ -1,3 +1,5 @@
+// vi: ft=wgsl
+
 struct Uniforms {
   canvasSize: vec2f,
   pan: vec2f,
@@ -30,7 +32,7 @@ fn vs(
     vec2f(0.0,  0.0),  // left, top
     vec2f(1.0,  0.0),  // right, center
     vec2f(0.0,  1.0),  // center, top
- 
+
     // 2nd triangle
     vec2f(0.0,  1.0),  // center, top
     vec2f(1.0,  0.0),  // right, center
@@ -42,11 +44,11 @@ fn vs(
   let instance = instances[instanceIndex];
   let center = instance.xy;
   let size = instance.z;
-  
+
   let vertexcoord = texcoord * 2.0 - 1.0;
   let vertex = ((vertexcoord * size + center) * uniforms.zoom + uniforms.pan) / uniforms.canvasSize * 2;
 
-  let hovered = distance(center * uniforms.zoom + uniforms.pan, uniforms.cursor - uniforms.canvasSize / 2) < size * uniforms.zoom;  
+  let hovered = distance(center * uniforms.zoom + uniforms.pan, uniforms.cursor - uniforms.canvasSize / 2) < size * uniforms.zoom;
   let color = mix(vec4(0.7, 0.7, 0.7, 1.0), vec4(1.0, 0.3, 0.3, 1.0), f32(hovered));
 
   return VertexOutput(

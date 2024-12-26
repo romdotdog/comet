@@ -2,11 +2,11 @@ when not defined(js):
   {.fatal: "comet must be compiled with the JavaScript backend.".}
 
 # import jsconsole, jsffi, macros
-import dom, asyncjs, std/with, jsconsole, math # , sugar
+import dom, asyncjs, std/with, jsconsole, math, sugar
 
 import jscanvas
 
-import ./[webgpu, typed_arrays, init]
+import ./[vec, webgpu, typed_arrays, init]
 
 const
   CircleWGSL = staticRead("circle.wgsl")
@@ -20,10 +20,25 @@ type Simulation = ref object
 proc random(): float {.importjs: "Math.random()".}
 
 # override the dom lib so we don't have copies
-proc getBoundingClientRect*(e: Node): ref BoundingRect {.importcpp: "getBoundingClientRect", nodecl.}
+proc getBoundingClientRect*(
+  e: Node
+): ref BoundingRect {.importcpp: "getBoundingClientRect", nodecl.}
 
 # working on 2.2.0
 # proc `+=`(a: float, b: float) {.importjs: "# += #".}
+
+func coordinates(rect: ref BoundingRect): Vec2f = vec2(rect.left, rect.top)
+func size(rect: ref BoundingRect): Vec2f = vec2(rect.width, rect.height)
+
+func getMouse(pos: Vec2f, rect: ref BoundingRect, aspectRatio: float): Vec2f =
+  result = vec2(pos.x, -pos.y)
+  result.y += rect.height.float
+  result -= rect.coordinates()
+  result.x *= aspectRatio
+  result.y /= aspectRatio
+
+func coordinates(e: MouseEvent): Vec2f =
+  vec2(e.clientX.float, e.clientY.float)
 
 proc main(device: GPUDevice) {.async.} =
   let
@@ -32,86 +47,55 @@ proc main(device: GPUDevice) {.async.} =
     rect = canvas.getBoundingClientRect()
     ctx = canvas.getContextWebGPU()
     devicePixelRatio = window.devicePixelRatio
+    aspectRatio = canvas.width.float / canvas.height.float
 
   # TODO: Move this to a separate module
   var
     scaleOffset = 1.0
     scaleTarget = 1.0
-
-    panOffsetX = 0.0
-    panOffsetY = 0.0
-    panVelocityX = 0.0
-    panVelocityY = 0.0
-
-    mouseX = 0.0
-    mouseY = 0.0
-
+    panOffset = default Vec2f
+    panVelocity = default Vec2f
+    mouse = default Vec2f
+    retMouse = default Vec2f
     currentlyPanning = false
-
-    retMouseX = 0.0
-    retMouseY = 0.0
-
-  proc getMouse(e: MouseEvent) =
-    retMouseX =
-      (e.clientX.float - rect.left) * (canvas.width.float / rect.width.float)
-    retMouseY =
-      (rect.height.float - e.clientY.float - rect.top) * (canvas.height.float / rect.height.float)
 
   canvas.addEventListener("mousedown", proc(e: Event) =
     currentlyPanning = true
     canvas.setAttribute("grabbing", "")
-
-    let mouseEvent = e.MouseEvent
-    getMouse(mouseEvent)
-    mouseX = retMouseX
-    mouseY = retMouseY)
+    mouse @= e.MouseEvent.coordinates().getMouse(rect, aspectRatio))
 
   canvas.addEventListener("mouseup", proc(e: Event) =
     canvas.removeAttribute("grabbing")
 
-    if abs(panVelocityX) < devicePixelRatio:
-      panVelocityX = 0
-    if abs(panVelocityY) < devicePixelRatio:
-      panVelocityY = 0
+    if abs(panVelocity.x) < devicePixelRatio:
+      panVelocity.x = 0
+    if abs(panVelocity.y) < devicePixelRatio:
+      panVelocity.y = 0
 
     currentlyPanning = false)
 
   canvas.addEventListener("mousemove", proc(e: Event) =
-    let mouseEvent = e.MouseEvent
-
-    getMouse(mouseEvent)
-    let
-      currentMouseX = retMouseX
-      currentMouseY = retMouseY
-
-    console.log(currentMouseX, currentMouseY)
-      
+    let currentMouse = e.MouseEvent.coordinates().getMouse(rect, aspectRatio)
+    # console.log(currentMouse.x, currentMouse.y)
     if currentlyPanning:
       # calculate delta
-      let
-        deltaX = (currentMouseX - mouseX)
-        deltaY = (currentMouseY - mouseY)
-
+      var delta = currentMouse - mouse
       # apply delta to pan offsets
-      panOffsetX += deltaX
-      panOffsetY += deltaY
-
+      delta.y = -delta.y
+      panOffset += delta
       # track velocity
-      panVelocityX = lerp(panVelocityX, deltaX, 0.8)
-      panVelocityY = lerp(panVelocityY, deltaY, 0.8)
-      
+      panVelocity.x = lerp(panVelocity.x, delta.x, 0.8)
+      panVelocity.y = lerp(panVelocity.x, delta.y, 0.8)
+
     # update mouse position
-    mouseX = currentMouseX
-    mouseY = currentMouseY)
+    mouse @= currentMouse)
 
   type WheelEvent = ref object of MouseEvent
     deltaY: float32
 
   canvas.addEventListener("wheel", proc(e: Event) =
     let wheelEvent = e.WheelEvent
-    getMouse(wheelEvent)
-    mouseX = retMouseX
-    mouseY = retMouseY
+    mouse @= wheelEvent.WheelEvent.coordinates().getMouse(rect, aspectRatio)
     scaleTarget *= pow(1.4, -wheelEvent.deltaY.float32 / 100.0))
 
   proc processMomentum() =
@@ -130,27 +114,28 @@ proc main(device: GPUDevice) {.async.} =
       # map mouse position to canvas space
 
       # map x from [0, width] to [-width/2, width/2]
-      let mouseX = mouseX - canvas.width/2
-      
       # map y from [0, height] to [-height/2, height/2]
-      let mouseY = mouseY - canvas.height/2
+      let mouse =
+        vec2(mouse.x, mouse.y) -
+        vec2(canvas.width, canvas.height).to(float) /. 2.0
 
       # TODO: consider whether taking into account the mouse position
       # while zooming out is inconvenient
-      panOffsetX += (mouseX - panOffsetX) * factor
-      panOffsetY += (mouseY - panOffsetY) * factor
-      
+      panOffset @= (mouse - panOffset) *. factor
+
     # pan
 
     if not currentlyPanning:
-      panOffsetX += 2 * panVelocityX
-      panOffsetY += 2 * panVelocityY
+      panOffset += panOffset *. 2
 
-    panVelocityX *= 0.9
-    panVelocityY *= 0.9
+    panVelocity *=. 0.9
 
-  canvas.width = int(rect.right.float * devicePixelRatio) - int(rect.left.float * devicePixelRatio)
-  canvas.height = int(rect.bottom.float * devicePixelRatio) - int(rect.top.float * devicePixelRatio)
+  canvas.width =
+    int(rect.right.float * devicePixelRatio) -
+    int(rect.left.float * devicePixelRatio)
+  canvas.height =
+    int(rect.bottom.float * devicePixelRatio) -
+    int(rect.top.float * devicePixelRatio)
 
   let presentationFormat = await navigator.gpu.getPreferredCanvasFormat()
 
@@ -253,7 +238,16 @@ proc main(device: GPUDevice) {.async.} =
   #   input.byteLength
   # )
 
-  var uniform = TypedArray[float32].new(@[canvas.width.float32, canvas.height.float32, panOffsetX, panOffsetY, mouseX, mouseY, 1, 0])
+  var uniform = TypedArray[float32].new(@[
+    canvas.width.float32,
+    canvas.height.float32,
+    panOffset.x,
+    panOffset.y,
+    mouse.x,
+    mouse.y,
+    1,
+    0
+  ])
 
   let
     module =
@@ -330,10 +324,10 @@ proc main(device: GPUDevice) {.async.} =
     prevTime = time
 
     processMomentum()
-    uniform[2] = panOffsetX
-    uniform[3] = panOffsetY
-    uniform[4] = mouseX
-    uniform[5] = mouseY
+    uniform[2] = panOffset.x
+    uniform[3] = panOffset.y
+    uniform[4] = mouse.x
+    uniform[5] = mouse.y
     uniform[6] = scaleOffset
     device.queue.writeBuffer(uniformBuffer, 0, uniform)
 
@@ -367,22 +361,22 @@ proc main(device: GPUDevice) {.async.} =
     let commandBuffer = commandEncoder.finish()
 
     device.queue.submit(@[commandBuffer])
-  
+
     discard await resultBuffer.mapAsync(Read)
     let shaderResult = TypedArray[uint32].new(resultBuffer.getMappedRange())
     if shaderResult[0] == 1:
       canvas.setAttribute("pointing", "")
     else:
       canvas.removeAttribute("pointing")
-    
+
     # console.log("result", shaderResult[0])
     resultBuffer.unmap()
- 
-    timing.textContent = $round(1000 / dt, 1)
 
-    discard window.requestAnimationFrame(proc(time: float) {.closure.} = discard frame(time))
+    timing.textContent = cstring($round(1000 / dt, 1))
 
-  discard window.requestAnimationFrame(proc(time: float) {.closure.} = discard frame(time))
+    discard window.requestAnimationFrame() do (time: float): discard frame(time)
+
+  discard window.requestAnimationFrame() do (time: float): discard frame(time)
 
 
   # await resultBuffer.mapAsync(Read)
