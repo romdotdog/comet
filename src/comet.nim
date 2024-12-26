@@ -31,10 +31,11 @@ func position(e: MouseEvent): Vec2f = vec2(e.clientX.float, e.clientY.float)
 
 # converts mouse position from top left to canvas space from bottom left
 func toBLCanvasCoords(pos: Vec2f, rect: ref BoundingRect, canvas: CanvasElement): Vec2f =
-  result = vec2(pos.x, rect.height.float - pos.y)
-  result -= rect.offset
-  result /= rect.size
-  result *= canvas.size
+  result = vec2(pos)
+  result -= rect.offset # remove canvas offset
+  result.y = rect.height.float - result.y # invert y coordinate (0 means bottom)
+  result /= rect.size # [0, 1]
+  result *= canvas.size # [0, canvas size]
 
 proc main(device: GPUDevice) {.async.} =
   let
