@@ -21,6 +21,11 @@ type
     Read = 1
     Write
 
+  GPUShaderStage* {.importjs: "GPUShaderStage".} = enum
+    Vertex
+    Fragment
+    Compute
+
   GPU* {.importjs: "GPU".} = ref object
 
   GPUCanvasContext* {.importjs: "GPUCanvasContext".} = ref object
@@ -54,13 +59,41 @@ type
   GPUShaderModuleDescriptor* = ref object
     label*: cstring = nil
     code*: cstring
-    # hints: 
-    # sourceMap: 
+    # hints:
+    # sourceMap:
 
   GPUShaderModule* {.importjs: "GPUShaderModule".} = ref object
 
+  GPUPipelineLayout* {.importjs: "GPUPipelineLayout".} = ref object
+
+  GPUPipelineLayoutDescriptor* = ref object
+    label*: cstring = nil
+    bindGroupLayouts*: seq[GPUBindGroupLayout]
+
+  GPUBindGroupLayoutDescriptor* = ref object
+    label*: cstring = nil
+    entries*: seq[GPUBindGroupLayoutEntry]
+
+  GPUBindGroupLayoutEntryKind* = enum
+    Buffer
+    Texture
+
+  GPULayoutEntryBuffer* = ref object
+    hasDynamicOffset*: bool = false
+    minBindingSize*: int = 0
+    `type`*: cstring = "uniform" # | "read-only-storage" | "storage"
+
+  GPUBindGroupLayoutEntry* = ref object
+    binding*: int
+    visibility*: int
+    case kind*: GPUBindGroupLayoutEntryKind
+    of Buffer:
+      buffer*: GPULayoutEntryBuffer
+    else:
+      discard
+
   GPURenderPipelineDescriptor* = ref object
-    layout*: cstring
+    layout*: GPUPipelineLayout
     vertex*: GPUVertex
     fragment*: GPUFragment
     primitive*: GPUPrimitive
@@ -95,7 +128,7 @@ type
 
   GPUComputePipelineDescriptor* = ref object
     label*: cstring = nil
-    layout*: cstring # XXX: shouldn't be like this
+    layout*: GPUPipelineLayout
     compute*: GPUComputeDescriptor
 
   GPUComputePipeline* {.importjs: "GPUComputePipeline".} = ref object
@@ -103,7 +136,7 @@ type
   GPUBindGroupEntry* = ref object
     label*: cstring = nil
     binding*: int
-    resource*: GPUResourceDescriptor
+    resource*: GPUResource
 
   GPUBindGroupDescriptor* = ref object
     label*: cstring = nil
@@ -112,15 +145,35 @@ type
 
   GPUBindGroup* {.importjs: "GPUBindGroup".} = ref object
 
-  GPUResourceDescriptor* = ref object
-    buffer*: GPUBuffer
+  GPUResourceKind* = enum
+    BufferBinding
+    ExternalTexture
+    Sampler
+    TextureView
+
+  GPUResource* = ref object
+    case kind*: GPUResourceKind
+    of BufferBinding:
+      buffer*: GPUBuffer
+      offset*: int = 0
+    else:
+      discard
 
   GPUBindGroupLayout* {.importjs: "GPUBindGroupLayout".} = ref object
 
   GPUComputePassEncoder* {.importjs: "GPUComputePassEncoder".} = ref object
 
+converter toInt*(gpuShaderStage: GPUShaderStage): int {.inline.} =
+  result = 1 shl gpuShaderStage.ord
+
 converter toInt*(gpuBufferUsage: GPUBufferUsage): int {.inline.} =
   result = 1 shl gpuBufferUsage.ord
+
+converter toInt*(gpuShaderStage: set[GPUShaderStage]): int {.inline.} =
+  result = 0
+  for usage in gpuShaderStage:
+    # dump (usage, usage.ord, 1 shl usage.ord, result)
+    result = result or usage.toInt()
 
 converter toInt*(gpuBufferUsages: set[GPUBufferUsage]): int {.inline.} =
   result = 0
@@ -223,15 +276,23 @@ proc finish*(
   encoder: GPUCommandEncoder
 ): GPUCommandBuffer {.importjs: "#.finish()".}
 
+proc auto*(_: typedesc[GPUPipelineLayout]): GPUPipelineLayout =
+  cast[GPUPipelineLayout]("auto".cstring)
+
+proc createPipelineLayout*(
+  device: GPUDevice,
+  descriptor: GPUPipelineLayoutDescriptor
+): GPUPipelineLayout {.importjs: "#.createPipelineLayout(#)".}
+
 proc getBindGroupLayout*(
-  pipeline: GPURenderPipeline,
+  pipeline: GPUComputePipeline | GPURenderPipeline,
   index: SomeInteger
 ): GPUBindGroupLayout {.importjs: "#.getBindGroupLayout(#)".}
 
-proc getBindGroupLayout*(
-  pipeline: GPUComputePipeline,
-  index: SomeInteger
-): GPUBindGroupLayout {.importjs: "#.getBindGroupLayout(#)".}
+proc createBindGroupLayout*(
+  device: GPUDevice,
+  descriptor: GPUBindGroupLayoutDescriptor
+): GPUBindGroupLayout {.importjs: "#.createBindGroupLayout(#)".}
 
 proc setPipeline*(
   encoder: GPURenderPassEncoder,
