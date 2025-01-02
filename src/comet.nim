@@ -2,7 +2,7 @@ when not defined(js):
   {.fatal: "comet must be compiled with the JavaScript backend.".}
 
 # import jsconsole, jsffi, macros
-import dom, asyncjs, std/with, jsconsole, math
+import dom, asyncjs, std/with, jscore, jsconsole, math
 
 import jscanvas
 
@@ -17,8 +17,6 @@ proc lerp(v0, v1, t: float32): float32 =
 type Simulation = ref object
   canvas: CanvasElement
 
-proc random(): float {.importjs: "Math.random()".}
-
 # override the dom lib so we don't have copies
 proc getBoundingClientRect*(
   e: Node
@@ -26,11 +24,20 @@ proc getBoundingClientRect*(
 
 func offset(rect: ref BoundingRect): Vec2f = vec2(rect.left, rect.top)
 func size(rect: ref BoundingRect): Vec2f = vec2(rect.width, rect.height)
-func size(canvas: CanvasElement): Vec2f = vec2(canvas.width.float, canvas.height.float)
+func size(canvas: CanvasElement): Vec2f =
+  vec2(canvas.width.float, canvas.height.float)
 func position(e: MouseEvent): Vec2f = vec2(e.clientX.float, e.clientY.float)
 
+template dbg(a: untyped): untyped =
+  console.log(astToStr(a), " = ", a)
+  a
+
 # converts mouse position from top left to canvas space from bottom left
-func toBLCanvasCoords(pos: Vec2f, rect: ref BoundingRect, canvas: CanvasElement): Vec2f =
+func toBLCanvasCoords(
+  pos: Vec2f,
+  rect: ref BoundingRect,
+  canvas: CanvasElement
+): Vec2f =
   result = vec2(pos)
   result -= rect.offset # remove canvas offset
   result /= rect.size # [0, 1]
@@ -39,34 +46,94 @@ func toBLCanvasCoords(pos: Vec2f, rect: ref BoundingRect, canvas: CanvasElement)
 
 proc compute(device: GPUDevice) {.async.} =
   let
-    shaderModule = device.createShaderModule(GPUShaderModuleDescriptor(label: "compute shader", code: ComputeShader))
+    shaderModule = device.createShaderModule(
+      GPUShaderModuleDescriptor(label: "compute shader", code: ComputeShader)
+    )
 
     computePipeline =
       await device.createComputePipelineAsync(GPUComputePipelineDescriptor(
         label: "compute pipeline",
-        layout: "auto",
+        layout: device.createPipelineLayout(GPUPipelineLayoutDescriptor(
+          label: "compute pipeline layout",
+          bindGroupLayouts: @[
+            device.createBindGroupLayout(GPUBindGroupLayoutDescriptor(
+              label: "bind group 0 layout",
+              entries: @[
+                GPUBindGroupLayoutEntry(
+                  binding: 0,
+                  visibility: {GPUShaderStage.Compute}.toInt(),
+                  kind: Buffer,
+                  buffer: GPULayoutEntryBuffer(`type`: "read-only-storage")
+                ),
+                GPUBindGroupLayoutEntry(
+                  binding: 1,
+                  visibility: {GPUShaderStage.Compute}.toInt(),
+                  kind: Buffer,
+                  buffer: GPULayoutEntryBuffer(`type`: "read-only-storage")
+                ),
+                GPUBindGroupLayoutEntry(
+                  binding: 2,
+                  visibility: {GPUShaderStage.Compute}.toInt(),
+                  kind: Buffer,
+                  buffer: GPULayoutEntryBuffer(`type`: "storage")
+                ),
+                GPUBindGroupLayoutEntry(
+                  binding: 3,
+                  visibility: {GPUShaderStage.Compute}.toInt(),
+                  kind: Buffer,
+                  buffer: GPULayoutEntryBuffer(`type`: "storage")
+                ),
+              ]
+            )),
+          ]
+        )),
         compute: GPUComputeDescriptor(
           entryPoint: "main",
           module: shaderModule
         )
       ))
 
-  var input = TypedArray.new(@[1'f32, 3, 5, 0, 1, 3, 5, 0, 1, 3, 5, 0])
-
   let
-    workBuffer = device.createBuffer(GPUBufferDescriptor(
-      label: "work buffer",
-      size: input.byteLength,
-      usage: {GPUBufferUsage.Storage, CopySrc, CopyDst}.toInt()
-    ))
+    eps2 = [1e-3'f32]
+    objects = [
+      # x        y    w (mass) (padding)
+        0.0'f32, 0.0, 5.0,     0.0,
+        4.0'f32, 0.0, 5.0,     0.0,
+    ]
+    nObjects = [dbg(uint32(objects.len div 4))]
+    accelerations = TypedArray[float32].new(nObjects[0] * 2)
 
-    resultBuffer = device.createBuffer(GPUBufferDescriptor(
-      label: "result buffer",
-      size: input.byteLength,
+    eps2Buffer = device.createBuffer(GPUBufferDescriptor(
+      label: "eps^2 buffer",
+      size: eps2.byteLength,
+      usage: {GPUBufferUsage.Storage, CopyDst}.toInt()
+    ))
+    nObjectsBuffer = device.createBuffer(GPUBufferDescriptor(
+      label: "nObjects buffer",
+      size: nObjects.byteLength,
+      usage: {GPUBufferUsage.Storage, CopyDst}.toInt()
+    ))
+    objectsBuffer = device.createBuffer(GPUBufferDescriptor(
+      label: "objects buffer",
+      size: objects.byteLength,
+      usage: {GPUBufferUsage.Storage, CopyDst}.toInt()
+    ))
+    accelerationsBuffer = device.createBuffer(GPUBufferDescriptor(
+      label: "accelerations buffer",
+      size: accelerations.byteLength,
+      usage: {GPUBufferUsage.Storage, CopyDst, CopySrc}.toInt()
+    ))
+    accelerationsMapBuffer = device.createBuffer(GPUBufferDescriptor(
+      label: "accelerations map buffer",
+      size: accelerations.byteLength,
       usage: {MapRead, CopyDst}.toInt()
     ))
 
-  device.queue.writeBuffer(workBuffer, 0, input)
+  with device.queue:
+    writeBuffer(eps2Buffer, 0, eps2)
+    writeBuffer(nObjectsBuffer, 0, nObjects)
+    writeBuffer(objectsBuffer, 0, objects)
+    writeBuffer(accelerationsBuffer, 0, accelerations)
 
   let
     bindGroup = device.createBindGroup(GPUBindGroupDescriptor(
@@ -75,8 +142,23 @@ proc compute(device: GPUDevice) {.async.} =
       entries: @[
         GPUBindGroupEntry(
           binding: 0,
-          resource: GPUResourceDescriptor(buffer: workBuffer)
-        )
+          resource: GPUResource(kind: BufferBinding, buffer: eps2Buffer)
+        ),
+        GPUBindGroupEntry(
+          binding: 1,
+          resource: GPUResource(kind: BufferBinding, buffer: nObjectsBuffer)
+        ),
+        GPUBindGroupEntry(
+          binding: 2,
+          resource: GPUResource(kind: BufferBinding, buffer: objectsBuffer)
+        ),
+        GPUBindGroupEntry(
+          binding: 3,
+          resource: GPUResource(
+            kind: BufferBinding,
+            buffer: accelerationsBuffer
+          )
+        ),
       ]
     ))
 
@@ -86,28 +168,30 @@ proc compute(device: GPUDevice) {.async.} =
   with pass:
     setPipeline(computePipeline)
     setBindGroup(0, bindGroup)
-    dispatchWorkgroups(int(input.len / 4))
+    # dispatchWorkgroups(int(input.len / 4))
+    dispatchWorkgroups(1)
     `end`()
 
   encoder.copyBufferToBuffer(
-    workBuffer,
+    accelerationsBuffer,
     0,
-    resultBuffer,
+    accelerationsMapBuffer,
     0,
-    input.byteLength
+    accelerations.byteLength
   )
 
   let commandBuffer = encoder.finish()
-  
+
   device.queue.submit(@[commandBuffer])
 
-  discard await resultBuffer.mapAsync(Read)
-  let shaderResult = TypedArray[float32].new(resultBuffer.getMappedRange())
+  discard await accelerationsMapBuffer.mapAsync(Read)
+  let shaderResult =
+    TypedArray[float32].new(accelerationsMapBuffer.getMappedRange())
 
-  console.log("input", input)
+  console.log("accelerations", accelerations)
   console.log("result", shaderResult)
 
-  resultBuffer.unmap()
+  accelerationsMapBuffer.unmap()
 
 proc main(device: GPUDevice) {.async.} =
   let
@@ -216,13 +300,13 @@ proc main(device: GPUDevice) {.async.} =
   #   let i = id.x
   #   data[i] = data[i] * 2
 
-  let n = 1000 #int(random() * 1000 + 3)
+  let n = 1000 #int(Math.random() * 1000 + 3)
   var input = TypedArray[float32].new(n * 4)
 
   for i in 0..<n:
-    input[i * 4] = random() * 1000 - 500
-    input[i * 4 + 1] = random() * 1000 - 500
-    input[i * 4 + 2] = random() * 5 + 5
+    input[i * 4] = Math.random() * 1000 - 500
+    input[i * 4 + 1] = Math.random() * 1000 - 500
+    input[i * 4 + 2] = Math.random() * 5 + 5
 
   console.log("input", input)
 
@@ -249,7 +333,7 @@ proc main(device: GPUDevice) {.async.} =
 
   device.queue.writeBuffer(workBuffer, 0, input)
 
-  var uniform = TypedArray[float32].new(@[
+  var uniform = [
     canvas.width.float32,
     canvas.height.float32,
     panOffset.x,
@@ -258,7 +342,7 @@ proc main(device: GPUDevice) {.async.} =
     mouse.y,
     1,
     0
-  ])
+  ]
 
   let
     module =
@@ -266,7 +350,7 @@ proc main(device: GPUDevice) {.async.} =
 
     pipeline =
       await device.createRenderPipelineAsync(GPURenderPipelineDescriptor(
-        layout: "auto",
+        layout: GPUPipelineLayout.auto(),
         vertex: GPUVertex(
           module: module
         ),
@@ -305,15 +389,15 @@ proc main(device: GPUDevice) {.async.} =
       entries: @[
         GPUBindGroupEntry(
           binding: 0,
-          resource: GPUResourceDescriptor(buffer: uniformBuffer)
+          resource: GPUResource(kind: BufferBinding, buffer: uniformBuffer)
         ),
         GPUBindGroupEntry(
           binding: 1,
-          resource: GPUResourceDescriptor(buffer: workBuffer)
+          resource: GPUResource(kind: BufferBinding, buffer: workBuffer)
         ),
         GPUBindGroupEntry(
           binding: 2,
-          resource: GPUResourceDescriptor(buffer: outBuffer)
+          resource: GPUResource(kind: BufferBinding, buffer: outBuffer)
         )
       ]
     ))
