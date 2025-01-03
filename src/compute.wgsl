@@ -1,18 +1,17 @@
 // vi: ft=wgsl ts=4 sw=4
 
-@group(0) @binding(0) var<storage, read> EPS2: f32;
-@group(0) @binding(1) var<storage, read> n_objects: u32;
+@group(0) @binding(0) var<uniform> EPS2: f32;
+@group(0) @binding(1) var<uniform> n_objects: u32;
 @group(0) @binding(2) var<storage, read_write> objects: array<vec3f>;
 @group(0) @binding(3) var<storage, read_write> accelerations: array<vec2f>;
 
 @compute @workgroup_size(1) fn main(
     @builtin(global_invocation_id) id: vec3u
 ) {
-    for (var i = 0u; i < n_objects; i++) {
-        let bi = objects[i];
-        let acc = tile_calculation(bi, accelerations[i]);
-        accelerations[i] = acc;
-    }
+    let i = id.x;
+    let bi = objects[i];
+    let acc = tile_calculation(bi, accelerations[i]);
+    accelerations[i] = acc;
 }
 
 fn tile_calculation(my_pos: vec3f, acceleration: vec2f) -> vec2f {
