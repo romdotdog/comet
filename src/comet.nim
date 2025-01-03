@@ -63,13 +63,13 @@ proc compute(device: GPUDevice) {.async.} =
                   binding: 0,
                   visibility: {GPUShaderStage.Compute}.toInt(),
                   kind: Buffer,
-                  buffer: GPULayoutEntryBuffer(`type`: "read-only-storage")
+                  buffer: GPULayoutEntryBuffer(`type`: "uniform")
                 ),
                 GPUBindGroupLayoutEntry(
                   binding: 1,
                   visibility: {GPUShaderStage.Compute}.toInt(),
                   kind: Buffer,
-                  buffer: GPULayoutEntryBuffer(`type`: "read-only-storage")
+                  buffer: GPULayoutEntryBuffer(`type`: "uniform")
                 ),
                 GPUBindGroupLayoutEntry(
                   binding: 2,
@@ -83,6 +83,13 @@ proc compute(device: GPUDevice) {.async.} =
                   kind: Buffer,
                   buffer: GPULayoutEntryBuffer(`type`: "storage")
                 ),
+                # TODO: Left here
+                # GPUBindGroupLayoutEntry(
+                #   binding: 4,
+                #   visibility: {GPUShaderStage.Compute}.toInt(),
+                #   kind: Buffer,
+                #   buffer: GPULayoutEntryBuffer(`type`: "storage")
+                # ),
               ]
             )),
           ]
@@ -94,24 +101,21 @@ proc compute(device: GPUDevice) {.async.} =
       ))
 
   let
-    eps2 = [1e-3'f32]
-    objects = [
-      # x        y    w (mass) (padding)
-        0.0'f32, 0.0, 5.0,     0.0,
-        4.0'f32, 0.0, 5.0,     0.0,
-    ]
-    nObjects = [dbg(uint32(objects.len div 4))]
-    accelerations = TypedArray[float32].new(nObjects[0] * 2)
+    nObjects = 1_000
+    eps2Arr = [1e-3'f32]
+    nObjectsArr = [nObjects]
+    objects = TypedArray[float32].new(4 * nObjects)
+    accelerations = TypedArray[float32].new(nObjects * 2)
 
     eps2Buffer = device.createBuffer(GPUBufferDescriptor(
       label: "eps^2 buffer",
-      size: eps2.byteLength,
-      usage: {GPUBufferUsage.Storage, CopyDst}.toInt()
+      size: eps2Arr.byteLength,
+      usage: {Uniform, CopyDst}.toInt()
     ))
     nObjectsBuffer = device.createBuffer(GPUBufferDescriptor(
       label: "nObjects buffer",
-      size: nObjects.byteLength,
-      usage: {GPUBufferUsage.Storage, CopyDst}.toInt()
+      size: nObjectsArr.byteLength,
+      usage: {Uniform, CopyDst}.toInt()
     ))
     objectsBuffer = device.createBuffer(GPUBufferDescriptor(
       label: "objects buffer",
@@ -129,9 +133,14 @@ proc compute(device: GPUDevice) {.async.} =
       usage: {MapRead, CopyDst}.toInt()
     ))
 
+  for i in countup(0, objects.len, step = 4):
+    objects[i + 0] = Math.random() * 40
+    objects[i + 1] = Math.random() * 40
+    objects[i + 2] = Math.random() * 10
+
   with device.queue:
-    writeBuffer(eps2Buffer, 0, eps2)
-    writeBuffer(nObjectsBuffer, 0, nObjects)
+    writeBuffer(eps2Buffer, 0, eps2Arr)
+    writeBuffer(nObjectsBuffer, 0, nObjectsArr)
     writeBuffer(objectsBuffer, 0, objects)
     writeBuffer(accelerationsBuffer, 0, accelerations)
 
@@ -169,7 +178,7 @@ proc compute(device: GPUDevice) {.async.} =
     setPipeline(computePipeline)
     setBindGroup(0, bindGroup)
     # dispatchWorkgroups(int(input.len / 4))
-    dispatchWorkgroups(1)
+    dispatchWorkgroups(nObjects)
     `end`()
 
   encoder.copyBufferToBuffer(
@@ -188,6 +197,7 @@ proc compute(device: GPUDevice) {.async.} =
   let shaderResult =
     TypedArray[float32].new(accelerationsMapBuffer.getMappedRange())
 
+  console.log("objects", objects)
   console.log("accelerations", accelerations)
   console.log("result", shaderResult)
 
@@ -293,6 +303,7 @@ proc main(device: GPUDevice) {.async.} =
   ))
 
   await compute(device)
+  return
 
   # var data {.group: 0, binding: 0, flags: [storage, read_write].}: array[f32]
 
