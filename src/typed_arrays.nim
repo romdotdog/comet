@@ -39,6 +39,35 @@ func new*(
 proc `[]=`*[T](typedArray: TypedArray[T], index: int, value: T) {.importjs: "#[#] = #".}
 proc `[]`*[T](typedArray: TypedArray[T], index: int): T {.importjs: "#[#]".}
 
+proc `[]=`*[T](
+  typedArray: TypedArray[T],
+  slice: Slice[int],
+  values: openArray[T]
+) =
+  doAssert slice.len == values.len
+  for (j, i) in slice.pairs():
+    typedArray[i] = values[j]
+
+proc `[]=`*[T; Idx: static[int]](
+  arr: var array[Idx, T],
+  slice: Slice[int],
+  values: openArray[T]
+) =
+  doAssert slice.len == values.len
+  var j = 0
+  for i in slice:
+    arr[i] = values[j]
+    inc j
+
+# proc `[]=`*[T; Idx, A, B: static[int]](
+#   arr: var array[Idx, T],
+#   slice: static[A..B],
+#   values {.byref.}: array[B - A, T]
+# ) =
+#   doAssert slice.len == values.len
+#   for (j, i) in slice.pairs():
+#     arr[i] = values[j]
+
 func byteLength*[T](typedArray: TypedArray[T]): int {.importjs: "#.byteLength".}
 func len*[T](typedArray: TypedArray[T]): int {.importjs: "#.length".}
 

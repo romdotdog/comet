@@ -2,14 +2,14 @@ type
   Vec3Impl[T] = ref array[3, T]
   Vec3*[T] = distinct Vec3Impl[T]
   Vec3f* = Vec3[float]
-  Vec3s* = Vec3[float32]
-  Vec3d* = Vec3[float64]
+  Vec3sf* = Vec3[float32]
+  Vec3df* = Vec3[float64]
 
   Vec2Impl[T] = ref array[2, T]
   Vec2*[T] = distinct Vec2Impl[T]
   Vec2f* = Vec2[float]
-  Vec2s* = Vec2[float32]
-  Vec2d* = Vec2[float64]
+  Vec2sf* = Vec2[float32]
+  Vec2df* = Vec2[float64]
 
 func impl[T](a: Vec3[T]): auto = Vec3Impl[T](a)
 func impl[T](a: Vec2[T]): auto = Vec2Impl[T](a)

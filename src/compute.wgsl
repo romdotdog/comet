@@ -5,10 +5,11 @@
 @group(0) @binding(2) var<storage, read_write> objects: array<vec3f>;
 @group(0) @binding(3) var<storage, read_write> accelerations: array<vec2f>;
 
-@compute @workgroup_size(1) fn main(
+@compute @workgroup_size(9, 1, 1) fn main(
     @builtin(global_invocation_id) id: vec3u
 ) {
     let i = id.x;
+    if (i >= n_objects) { return; }
     let bi = objects[i];
     let acc = tile_calculation(bi, accelerations[i]);
     accelerations[i] = acc;

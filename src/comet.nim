@@ -2,14 +2,18 @@ when not defined(js):
   {.fatal: "comet must be compiled with the JavaScript backend.".}
 
 # import jsconsole, jsffi, macros
-import dom, asyncjs, std/with, jscore, jsconsole, math
+import
+  std/with, math,
+  asyncjs, jscore, jsconsole # , jsffi
+import dom except Storage
 
 import jscanvas
 
-import ./[vec, webgpu, typed_arrays, init]
+import ./[vec, webgpu, typed_arrays, init] # , async_utils, util]
 
-const CanvasShader = staticRead("canvas.wgsl")
-const ComputeShader = staticRead("compute.wgsl")
+const
+  CanvasShader = staticRead("canvas.wgsl")
+  ComputeShader = staticRead("compute.wgsl")
 
 proc lerp(v0, v1, t: float32): float32 =
   (1 - t) * v0 + t * v1
@@ -37,12 +41,45 @@ func toBLCanvasCoords(
   pos: Vec2f,
   rect: ref BoundingRect,
   canvas: CanvasElement
-): Vec2f =
-  result = vec2(pos)
-  result -= rect.offset # remove canvas offset
-  result /= rect.size # [0, 1]
+): Vec2sf =
+  result = pos.to(float32)
+  result -= rect.offset.to(float32) # remove canvas offset
+  result /= rect.size.to(float32) # [0, 1]
   result.y = 1 - result.y # invert y coordinate (0 means bottom)
-  result *= canvas.size # [0, canvas size]
+  result *= canvas.size.to(float32) # [0, canvas size]
+
+func bufferBindGroupEntry(binding: int, buffer: GPUBuffer): GPUBindGroupEntry =
+  GPUBindGroupEntry(
+    binding: binding,
+    resource: GPUResource(
+      kind: BufferBinding,
+      buffer: buffer
+    )
+  )
+
+func bindGroupLayoutEntry(
+  binding: int,
+  visibility: set[GPUShaderStage],
+  buffer: GPULayoutEntryBuffer
+): GPUBindGroupLayoutEntry =
+  GPUBindGroupLayoutEntry(
+    binding: binding,
+    visibility: visibility.toInt(),
+    kind: Buffer,
+    buffer: buffer
+  )
+
+func createBuffer(
+  device: GPUDevice,
+  label: cstring,
+  size: int,
+  usage: set[GPUBufferUsage]
+): GPUBuffer =
+  device.createBuffer(GPUBufferDescriptor(
+    label: label,
+    size: size,
+    usage: usage.toInt()
+  ))
 
 proc compute(device: GPUDevice) {.async.} =
   let
@@ -59,29 +96,25 @@ proc compute(device: GPUDevice) {.async.} =
             device.createBindGroupLayout(GPUBindGroupLayoutDescriptor(
               label: "bind group 0 layout",
               entries: @[
-                GPUBindGroupLayoutEntry(
-                  binding: 0,
-                  visibility: {GPUShaderStage.Compute}.toInt(),
-                  kind: Buffer,
-                  buffer: GPULayoutEntryBuffer(`type`: "uniform")
+                bindGroupLayoutEntry(
+                  binding = 0,
+                  visibility = {Compute},
+                  buffer = GPULayoutEntryBuffer(`type`: "uniform")
                 ),
-                GPUBindGroupLayoutEntry(
-                  binding: 1,
-                  visibility: {GPUShaderStage.Compute}.toInt(),
-                  kind: Buffer,
-                  buffer: GPULayoutEntryBuffer(`type`: "uniform")
+                bindGroupLayoutEntry(
+                  binding = 1,
+                  visibility = {Compute},
+                  buffer = GPULayoutEntryBuffer(`type`: "uniform")
                 ),
-                GPUBindGroupLayoutEntry(
-                  binding: 2,
-                  visibility: {GPUShaderStage.Compute}.toInt(),
-                  kind: Buffer,
-                  buffer: GPULayoutEntryBuffer(`type`: "storage")
+                bindGroupLayoutEntry(
+                  binding = 2,
+                  visibility = {Compute},
+                  buffer = GPULayoutEntryBuffer(`type`: "storage")
                 ),
-                GPUBindGroupLayoutEntry(
-                  binding: 3,
-                  visibility: {GPUShaderStage.Compute}.toInt(),
-                  kind: Buffer,
-                  buffer: GPULayoutEntryBuffer(`type`: "storage")
+                bindGroupLayoutEntry(
+                  binding = 3,
+                  visibility = {Compute},
+                  buffer = GPULayoutEntryBuffer(`type`: "storage")
                 ),
                 # TODO: Left here
                 # GPUBindGroupLayoutEntry(
@@ -101,42 +134,45 @@ proc compute(device: GPUDevice) {.async.} =
       ))
 
   let
-    nObjects = 1_000
+    nObjects = 4
     eps2Arr = [1e-3'f32]
     nObjectsArr = [nObjects]
     objects = TypedArray[float32].new(4 * nObjects)
     accelerations = TypedArray[float32].new(nObjects * 2)
 
-    eps2Buffer = device.createBuffer(GPUBufferDescriptor(
-      label: "eps^2 buffer",
-      size: eps2Arr.byteLength,
-      usage: {Uniform, CopyDst}.toInt()
-    ))
-    nObjectsBuffer = device.createBuffer(GPUBufferDescriptor(
-      label: "nObjects buffer",
-      size: nObjectsArr.byteLength,
-      usage: {Uniform, CopyDst}.toInt()
-    ))
-    objectsBuffer = device.createBuffer(GPUBufferDescriptor(
-      label: "objects buffer",
-      size: objects.byteLength,
-      usage: {GPUBufferUsage.Storage, CopyDst}.toInt()
-    ))
-    accelerationsBuffer = device.createBuffer(GPUBufferDescriptor(
-      label: "accelerations buffer",
-      size: accelerations.byteLength,
-      usage: {GPUBufferUsage.Storage, CopyDst, CopySrc}.toInt()
-    ))
-    accelerationsMapBuffer = device.createBuffer(GPUBufferDescriptor(
-      label: "accelerations map buffer",
-      size: accelerations.byteLength,
-      usage: {MapRead, CopyDst}.toInt()
-    ))
+    eps2Buffer = device.createBuffer(
+      label = "eps^2 buffer",
+      size = eps2Arr.byteLength,
+      usage = {Uniform, CopyDst}
+    )
+    nObjectsBuffer = device.createBuffer(
+      label = "nObjects buffer",
+      size = nObjectsArr.byteLength,
+      usage = {Uniform, CopyDst}
+    )
+    objectsBuffer = device.createBuffer(
+      label = "objects buffer",
+      size = objects.byteLength,
+      usage = {GPUBufferUsage.Storage, CopyDst}
+    )
+    accelerationsBuffer = device.createBuffer(
+      label = "accelerations buffer",
+      size = accelerations.byteLength,
+      usage = {GPUBufferUsage.Storage, CopyDst, CopySrc}
+    )
+    accelerationsMapBuffer = device.createBuffer(
+      label = "accelerations map buffer",
+      size = accelerations.byteLength,
+      usage = {MapRead, CopyDst}
+    )
 
   for i in countup(0, objects.len, step = 4):
-    objects[i + 0] = Math.random() * 40
-    objects[i + 1] = Math.random() * 40
-    objects[i + 2] = Math.random() * 10
+    # objects[i + 0] = Math.random() * 40
+    # objects[i + 1] = Math.random() * 40
+    # objects[i + 2] = Math.random() * 10
+    objects[i + 0] = i.float32 * 4
+    objects[i + 1] = i.float32 * 5 - 0.5
+    objects[i + 2] = i.float32 * 10
 
   with device.queue:
     writeBuffer(eps2Buffer, 0, eps2Arr)
@@ -149,25 +185,10 @@ proc compute(device: GPUDevice) {.async.} =
       label: "bindGroup for work buffer",
       layout: computePipeline.getBindGroupLayout(0),
       entries: @[
-        GPUBindGroupEntry(
-          binding: 0,
-          resource: GPUResource(kind: BufferBinding, buffer: eps2Buffer)
-        ),
-        GPUBindGroupEntry(
-          binding: 1,
-          resource: GPUResource(kind: BufferBinding, buffer: nObjectsBuffer)
-        ),
-        GPUBindGroupEntry(
-          binding: 2,
-          resource: GPUResource(kind: BufferBinding, buffer: objectsBuffer)
-        ),
-        GPUBindGroupEntry(
-          binding: 3,
-          resource: GPUResource(
-            kind: BufferBinding,
-            buffer: accelerationsBuffer
-          )
-        ),
+        bufferBindGroupEntry(0, eps2Buffer),
+        bufferBindGroupEntry(1, nObjectsBuffer),
+        bufferBindGroupEntry(2, objectsBuffer),
+        bufferBindGroupEntry(3, accelerationsBuffer),
       ]
     ))
 
@@ -177,8 +198,7 @@ proc compute(device: GPUDevice) {.async.} =
   with pass:
     setPipeline(computePipeline)
     setBindGroup(0, bindGroup)
-    # dispatchWorkgroups(int(input.len / 4))
-    dispatchWorkgroups(nObjects)
+    dispatchWorkgroups(ceil(nObjects.float / 9).int)
     `end`()
 
   encoder.copyBufferToBuffer(
@@ -215,9 +235,9 @@ proc main(device: GPUDevice) {.async.} =
   var
     scaleOffset = 1.0
     scaleTarget = 1.0
-    panOffset = default Vec2f
-    panVelocity = default Vec2f
-    mouse = default Vec2f
+    panOffset = default Vec2sf
+    panVelocity = default Vec2sf
+    mouse = default Vec2sf
     currentlyPanning = false
 
   canvas.addEventListener("mousedown", proc(e: Event) =
@@ -274,7 +294,7 @@ proc main(device: GPUDevice) {.async.} =
       # map mouse position to canvas clip space
       # map x from [0, width] to [-width/2, width/2]
       # map y from [0, height] to [-height/2, height/2]
-      let mouseClip = mouse - canvas.size /. 2.0
+      let mouseClip = mouse - canvas.size.to(float32) /. 2.0
 
       # TODO: consider whether taking into account the mouse position
       # while zooming out is inconvenient
@@ -311,11 +331,11 @@ proc main(device: GPUDevice) {.async.} =
   #   let i = id.x
   #   data[i] = data[i] * 2
 
-  let n = 1000 #int(Math.random() * 1000 + 3)
+  let n = 1000
   var input = TypedArray[float32].new(n * 4)
 
   for i in 0..<n:
-    input[i * 4] = Math.random() * 1000 - 500
+    input[i * 4 + 0] = Math.random() * 1000 - 500
     input[i * 4 + 1] = Math.random() * 1000 - 500
     input[i * 4 + 2] = Math.random() * 5 + 5
 
@@ -324,23 +344,23 @@ proc main(device: GPUDevice) {.async.} =
   # we have to add zeroes because of padding
 
   let
-    workBuffer = device.createBuffer(GPUBufferDescriptor(
-      label: "work buffer",
-      size: input.byteLength,
-      usage: {GPUBufferUsage.Storage, CopySrc, CopyDst}.toInt()
-    ))
+    workBuffer = device.createBuffer(
+      label = "work buffer",
+      size = input.byteLength,
+      usage = {Storage, CopySrc, CopyDst}
+    )
 
-    outBuffer = device.createBuffer(GPUBufferDescriptor(
-      label: "out buffer",
-      size: 4,
-      usage: {GPUBufferUsage.Storage, CopySrc, CopyDst}.toInt()
-    ))
+    outBuffer = device.createBuffer(
+      label = "out buffer",
+      size = 4,
+      usage = {Storage, CopySrc, CopyDst}
+    )
 
-    resultBuffer = device.createBuffer(GPUBufferDescriptor(
-      label: "result buffer",
-      size: 4,
-      usage: {MapRead, CopyDst}.toInt()
-    ))
+    resultBuffer = device.createBuffer(
+      label = "result buffer",
+      size = 4,
+      usage = {MapRead, CopyDst}
+    )
 
   device.queue.writeBuffer(workBuffer, 0, input)
 
@@ -388,27 +408,27 @@ proc main(device: GPUDevice) {.async.} =
         )
       ))
 
-    uniformBuffer = device.createBuffer(GPUBufferDescriptor(
-      label: "uniform buffer",
-      size: uniform.byteLength,
-      usage: {CopyDst, Uniform}.toInt()
-    ))
+    uniformBuffer = device.createBuffer(
+      label = "uniform buffer",
+      size = uniform.byteLength,
+      usage = {CopyDst, Uniform}
+    )
 
     bindGroup = device.createBindGroup(GPUBindGroupDescriptor(
       label: "bindGroup for vertex shader",
       layout: pipeline.getBindGroupLayout(0),
       entries: @[
-        GPUBindGroupEntry(
-          binding: 0,
-          resource: GPUResource(kind: BufferBinding, buffer: uniformBuffer)
+        bufferBindGroupEntry(
+          binding = 0,
+          buffer = uniformBuffer
         ),
-        GPUBindGroupEntry(
-          binding: 1,
-          resource: GPUResource(kind: BufferBinding, buffer: workBuffer)
+        bufferBindGroupEntry(
+          binding = 1,
+          buffer = workBuffer
         ),
-        GPUBindGroupEntry(
-          binding: 2,
-          resource: GPUResource(kind: BufferBinding, buffer: outBuffer)
+        bufferBindGroupEntry(
+          binding = 2,
+          buffer = outBuffer
         )
       ]
     ))
@@ -430,11 +450,13 @@ proc main(device: GPUDevice) {.async.} =
     prevTime = time
 
     processMomentum()
-    uniform[2] = panOffset.x
-    uniform[3] = panOffset.y
-    uniform[4] = mouse.x
-    uniform[5] = mouse.y
-    uniform[6] = scaleOffset
+    uniform[2..6] = [
+      panOffset.x.float32,
+      panOffset.y,
+      mouse.x,
+      mouse.y,
+      scaleOffset
+    ]
     device.queue.writeBuffer(uniformBuffer, 0, uniform)
 
     let
@@ -443,8 +465,7 @@ proc main(device: GPUDevice) {.async.} =
 
     renderPassDescriptor.colorAttachments[0].view = textureView
 
-    let
-      commandEncoder = device.createCommandEncoder()
+    let commandEncoder = device.createCommandEncoder()
 
     commandEncoder.clearBuffer(outBuffer)
 
