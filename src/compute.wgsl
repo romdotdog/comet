@@ -5,30 +5,47 @@
 @group(0) @binding(2) var<storage, read_write> objects: array<vec3f>;
 @group(0) @binding(3) var<storage, read_write> accelerations: array<vec2f>;
 
-@compute @workgroup_size(9, 1, 1) fn main(
-    @builtin(global_invocation_id) id: vec3u
+const p = $#;
+const q = $#;
+const workgroup_size = p; //  * q;
+
+var<workgroup> tile_objects: array<vec3f, workgroup_size>;
+
+@compute @workgroup_size(p, 1, 1) fn main(
+    @builtin(global_invocation_id) id: vec3u,
+    @builtin(local_invocation_id) local_id: vec3u,
+    @builtin(workgroup_id) wg_id: vec3u,
 ) {
-    let i = id.x;
-    if (i >= n_objects) { return; }
-    let bi = objects[i];
-    let acc = tile_calculation(bi, accelerations[i]);
-    accelerations[i] = acc;
+    let n_objects = n_objects;
+    let object = objects[id.x];
+    var acc = accelerations[id.x];
+
+    var tile = 0u;
+    var i = 0u;
+    while (i < n_objects) {
+        tile_objects[local_id.x] = objects[i];
+        workgroupBarrier();
+        acc += tile_calculation(object);
+        workgroupBarrier();
+        i += p;
+        tile++;
+    }
 }
 
-fn tile_calculation(my_pos: vec3f, acceleration: vec2f) -> vec2f {
-    var acc = acceleration;
-    for (var j = 0u; j < n_objects; j++) {
-        let bj = objects[j];
-        acc += body_body_interaction(my_pos, bj, acc);
+fn tile_calculation(my_pos: vec3f) -> vec2f {
+    var acc = vec2f(0, 0);
+    for (var j = 0u; j < p; j++) {
+        let bj = tile_objects[j];
+        acc += body_body_interaction(my_pos, bj);
     }
     return acc;
 }
 
-fn body_body_interaction(bi: vec3f, bj: vec3f, ai: vec2f) -> vec2f {
+fn body_body_interaction(bi: vec3f, bj: vec3f) -> vec2f {
     let r = bj - bi;
     let distSqr = dot(r, r) + EPS2;
     let distSixth = distSqr * distSqr * distSqr;
-    let invDistCube = 1.0f / sqrt(distSixth);
+    let invDistCube = inverseSqrt(distSixth);
     let s = bj.z * invDistCube;
     return r.xy * s;
 }

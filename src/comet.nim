@@ -3,7 +3,7 @@ when not defined(js):
 
 # import jsconsole, jsffi, macros
 import
-  std/with, math,
+  std/with, math, strutils,
   asyncjs, jscore, jsconsole # , jsffi
 import dom except Storage
 
@@ -12,8 +12,10 @@ import jscanvas
 import ./[vec, webgpu, typed_arrays, init] # , async_utils, util]
 
 const
+  DimP = 9
+  DimQ = 1
   CanvasShader = staticRead("canvas.wgsl")
-  ComputeShader = staticRead("compute.wgsl")
+  ComputeShader = staticRead("compute.wgsl") % [$DimP, $DimQ]
 
 proc lerp(v0, v1, t: float32): float32 =
   (1 - t) * v0 + t * v1
@@ -36,6 +38,9 @@ template dbg(a: untyped): untyped =
   console.log(astToStr(a), " = ", a)
   a
 
+func align(x, alignment: uint): uint {.inline.} =
+  (x + alignment - 1) and not (alignment - 1)
+#
 # converts mouse position from top left to canvas space from bottom left
 func toBLCanvasCoords(
   pos: Vec2f,
@@ -134,11 +139,13 @@ proc compute(device: GPUDevice) {.async.} =
       ))
 
   let
-    nObjects = 4
+    nObjects = 4'u
+    # shit must be aligned
+    nObjectsAligned = nObjects.align(DimP)
     eps2Arr = [1e-3'f32]
     nObjectsArr = [nObjects]
-    objects = TypedArray[float32].new(4 * nObjects)
-    accelerations = TypedArray[float32].new(nObjects * 2)
+    objects = TypedArray[float32].new(4 * nObjectsAligned)
+    accelerations = TypedArray[float32].new(2 * nObjectsAligned)
 
     eps2Buffer = device.createBuffer(
       label = "eps^2 buffer",
@@ -198,7 +205,7 @@ proc compute(device: GPUDevice) {.async.} =
   with pass:
     setPipeline(computePipeline)
     setBindGroup(0, bindGroup)
-    dispatchWorkgroups(ceil(nObjects.float / 9).int)
+    dispatchWorkgroups(objects.len div DimP)
     `end`()
 
   encoder.copyBufferToBuffer(
@@ -499,7 +506,7 @@ proc main(device: GPUDevice) {.async.} =
     # console.log("result", shaderResult[0])
     resultBuffer.unmap()
 
-    timing.textContent = cstring($round(1000 / dt, 1))
+    timing.textContent = cstring(formatFloat(1000 / dt, precision = 1))
 
     discard window.requestAnimationFrame() do (time: float): discard frame(time)
 
