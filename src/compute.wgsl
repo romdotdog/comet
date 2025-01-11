@@ -1,9 +1,12 @@
 // vi: ft=wgsl ts=4 sw=4
 
-@group(0) @binding(0) var<uniform> EPS2: f32;
-@group(0) @binding(1) var<uniform> n_objects: u32;
-@group(0) @binding(2) var<storage, read_write> objects: array<vec3f>;
-@group(0) @binding(3) var<storage, read_write> accelerations: array<vec2f>;
+// shared
+@group(0) @binding(0) var<uniform> n_objects: u32;
+@group(0) @binding(1) var<storage, read> objects: array<vec3f>;
+
+// private to pipeline
+@group(1) @binding(0) var<uniform> EPS2: f32;
+@group(1) @binding(1) var<storage, read_write> accelerations: array<vec2f>;
 
 const p = $#;
 const q = $#;
@@ -18,23 +21,26 @@ var<workgroup> tile_objects: array<vec3f, workgroup_size>;
 ) {
     let n_objects = n_objects;
     let object = objects[id.x];
-    var acc = accelerations[id.x];
+    var acc = vec2f(0, 0);
 
     var tile = 0u;
     var i = 0u;
     while (i < n_objects) {
-        tile_objects[local_id.x] = objects[i];
+        tile_objects[local_id.x] = objects[i + local_id.x];
         workgroupBarrier();
-        acc += tile_calculation(object);
+        let n_wg_objects = min(n_objects - i, workgroup_size);
+        acc += tile_calculation(object, n_wg_objects);
         workgroupBarrier();
         i += p;
         tile++;
     }
+
+    accelerations[id.x] = acc;
 }
 
-fn tile_calculation(my_pos: vec3f) -> vec2f {
+fn tile_calculation(my_pos: vec3f, n: u32) -> vec2f {
     var acc = vec2f(0, 0);
-    for (var j = 0u; j < p; j++) {
+    for (var j = 0u; j < n; j++) {
         let bj = tile_objects[j];
         acc += body_body_interaction(my_pos, bj);
     }

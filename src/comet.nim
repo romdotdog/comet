@@ -91,6 +91,21 @@ proc compute(device: GPUDevice) {.async.} =
     shaderModule = device.createShaderModule(
       GPUShaderModuleDescriptor(label: "compute shader", code: ComputeShader)
     )
+    sharedLayout = device.createBindGroupLayout(GPUBindGroupLayoutDescriptor(
+      label: "shared bindgroup layout",
+      entries: @[
+        bindGroupLayoutEntry(
+          binding = 0,
+          visibility = {Compute, GPUShaderStage.Vertex},
+          buffer = GPULayoutEntryBuffer(`type`: "uniform")
+        ),
+        bindGroupLayoutEntry(
+          binding = 1,
+          visibility = {Compute, GPUShaderStage.Vertex},
+          buffer = GPULayoutEntryBuffer(`type`: "read-only-storage")
+        ),
+      ]
+    ))
 
     computePipeline =
       await device.createComputePipelineAsync(GPUComputePipelineDescriptor(
@@ -98,8 +113,9 @@ proc compute(device: GPUDevice) {.async.} =
         layout: device.createPipelineLayout(GPUPipelineLayoutDescriptor(
           label: "compute pipeline layout",
           bindGroupLayouts: @[
+            sharedLayout,
             device.createBindGroupLayout(GPUBindGroupLayoutDescriptor(
-              label: "bind group 0 layout",
+              label: "compute bindgroup layout",
               entries: @[
                 bindGroupLayoutEntry(
                   binding = 0,
@@ -108,16 +124,6 @@ proc compute(device: GPUDevice) {.async.} =
                 ),
                 bindGroupLayoutEntry(
                   binding = 1,
-                  visibility = {Compute},
-                  buffer = GPULayoutEntryBuffer(`type`: "uniform")
-                ),
-                bindGroupLayoutEntry(
-                  binding = 2,
-                  visibility = {Compute},
-                  buffer = GPULayoutEntryBuffer(`type`: "storage")
-                ),
-                bindGroupLayoutEntry(
-                  binding = 3,
                   visibility = {Compute},
                   buffer = GPULayoutEntryBuffer(`type`: "storage")
                 ),
@@ -140,7 +146,7 @@ proc compute(device: GPUDevice) {.async.} =
 
   let
     nObjects = 4'u
-    # shit must be aligned
+    # shit must be padded for aligned
     nObjectsAligned = nObjects.align(DimP)
     eps2Arr = [1e-3'f32]
     nObjectsArr = [nObjects]
@@ -173,7 +179,7 @@ proc compute(device: GPUDevice) {.async.} =
       usage = {MapRead, CopyDst}
     )
 
-  for i in countup(0, objects.len, step = 4):
+  for i in countup(0, nObjects.int, step = 4):
     # objects[i + 0] = Math.random() * 40
     # objects[i + 1] = Math.random() * 40
     # objects[i + 2] = Math.random() * 10
@@ -188,14 +194,20 @@ proc compute(device: GPUDevice) {.async.} =
     writeBuffer(accelerationsBuffer, 0, accelerations)
 
   let
-    bindGroup = device.createBindGroup(GPUBindGroupDescriptor(
-      label: "bindGroup for work buffer",
+    sharedBindGroup = device.createBindGroup(GPUBindGroupDescriptor(
+      label: "shared bindgroup",
       layout: computePipeline.getBindGroupLayout(0),
       entries: @[
+        bufferBindGroupEntry(0, nObjectsBuffer),
+        bufferBindGroupEntry(1, objectsBuffer),
+      ]
+    ))
+    computeBindGroup = device.createBindGroup(GPUBindGroupDescriptor(
+      label: "compute bindgroup",
+      layout: computePipeline.getBindGroupLayout(1),
+      entries: @[
         bufferBindGroupEntry(0, eps2Buffer),
-        bufferBindGroupEntry(1, nObjectsBuffer),
-        bufferBindGroupEntry(2, objectsBuffer),
-        bufferBindGroupEntry(3, accelerationsBuffer),
+        bufferBindGroupEntry(1, accelerationsBuffer),
       ]
     ))
 
@@ -204,7 +216,8 @@ proc compute(device: GPUDevice) {.async.} =
 
   with pass:
     setPipeline(computePipeline)
-    setBindGroup(0, bindGroup)
+    setBindGroup(0, sharedBindGroup)
+    setBindGroup(1, computeBindGroup)
     dispatchWorkgroups(objects.len div DimP)
     `end`()
 
