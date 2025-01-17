@@ -2,7 +2,7 @@
 
 // shared
 @group(0) @binding(0) var<uniform> n_objects: u32;
-@group(0) @binding(1) var<storage, read> objects: array<vec3f>;
+@group(0) @binding(1) var<storage, read_write> objects: array<vec3f>;
 
 // private to pipeline
 @group(1) @binding(0) var<uniform> EPS2: f32;

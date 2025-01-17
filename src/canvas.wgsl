@@ -18,9 +18,13 @@ struct Output {
   @location(0) hovering: u32
 }
 
-@group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(0) @binding(1) var<storage, read> instances: array<vec3f>;
-@group(0) @binding(2) var<storage, read_write> data: Output;
+@group(0) @binding(0) var<uniform> n_objects: u32;
+@group(0) @binding(1) var<storage, read> objects: array<vec3f>;
+
+@group(1) @binding(0) var<uniform> uniforms: Uniforms;
+@group(1) @binding(1) var<storage, read_write> data: Output;
+
+const DENSITY = 1.0;
 
 @vertex
 fn vs(
@@ -41,9 +45,10 @@ fn vs(
 
   let texcoord = pos[vertexIndex];
 
-  let instance = instances[instanceIndex];
+  let instance = objects[instanceIndex];
   let center = instance.xy;
-  let size = instance.z;
+  let mass = instance.z;
+  let size = mass / DENSITY;
 
   let vertexcoord = texcoord * 2.0 - 1.0;
   let vertex = ((vertexcoord * size + center) * uniforms.zoom + uniforms.pan) / uniforms.canvasSize * 2;
