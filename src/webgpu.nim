@@ -102,6 +102,19 @@ type
 
   GPUVertex* = ref object
     module*: GPUShaderModule
+    # constants*: JSObject
+    entryPoint*: cstring = nil
+    buffers*: seq[GPUVertexBufferLayout]
+
+  GPUVertexBufferLayout* = ref object
+    arrayStride*: int
+    attributes*: seq[GPUVertexBufferAttribute]
+    stepMode*: cstring = nil # make into enum https://developer.mozilla.org/en-US/docs/Web/API/GPUDevice/createRenderPipeline#stepmode
+
+  GPUVertexBufferAttribute* = ref object
+    format*: cstring # needs some enum thing that can be converted to cstring https://gpuweb.github.io/gpuweb/#enumdef-gpuvertexformat
+    offset*: int
+    shaderLocation*: int
 
   GPUBlendComponent* = ref object
     srcFactor*: cstring

@@ -278,7 +278,20 @@ proc main(device: GPUDevice) {.async.} =
           ]
         )),
         vertex: GPUVertex(
-          module: module
+          module: module,
+          buffers: @[
+            GPUVertexBufferLayout(
+              arrayStride: 16,
+              stepMode: "vertex",
+              attributes: @[
+                GPUVertexBufferAttribute(
+                  format: "float32x4",
+                  shaderLocation: 0,
+                  offset: 0
+                )
+              ]
+            )
+          ]
         ),
         fragment: GPUFragment(
           module: module,

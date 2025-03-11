@@ -10,7 +10,8 @@ const
   ComputeShader = staticRead("compute.wgsl") % [$DimP, $DimQ]
 
 template dbg*(a: untyped): untyped =
-  console.log(astToStr(a), " = ", a)
+  {.noSideEffect.}:
+    console.log(astToStr(a), " = ", a)
   a
 
 type
@@ -51,21 +52,6 @@ proc initCompute*(
         label: "compute pipeline layout",
         bindGroupLayouts: @[
           device.createBindGroupLayout(GPUBindGroupLayoutDescriptor(
-            label: "shared bindgroup layout",
-            entries: @[
-              bindGroupLayoutEntry(
-                binding = 0,
-                visibility = {Compute},
-                buffer = GPULayoutEntryBuffer(`type`: "uniform")
-              ),
-              bindGroupLayoutEntry(
-                binding = 1,
-                visibility = {Compute},
-                buffer = GPULayoutEntryBuffer(`type`: "storage")
-              ),
-            ]
-          )),
-          device.createBindGroupLayout(GPUBindGroupLayoutDescriptor(
             label: "compute bindgroup layout",
             entries: @[
               bindGroupLayoutEntry(
@@ -102,11 +88,6 @@ proc initCompute*(
 
   # buffers
   let
-    eps2Buffer = device.createBuffer(
-      label = "eps^2 buffer",
-      size = sizeof(float32),
-      usage = {Uniform, CopyDst}
-    )
     nObjectsBuffer = device.createBuffer(
       label = "nObjects buffer",
       size = sizeof(uint32),
@@ -121,6 +102,11 @@ proc initCompute*(
       label = "objects buffer",
       size = objects.byteLength,
       usage = {GPUBufferUsage.Storage, CopyDst}
+    )
+    eps2Buffer = device.createBuffer(
+      label = "eps^2 buffer",
+      size = sizeof(float32),
+      usage = {Uniform, CopyDst}
     )
     accelerationsBuffer = device.createBuffer(
       label = "accelerations buffer",
@@ -177,13 +163,12 @@ func run*(compute: GPUCompute) =
     encoder = compute.device.createCommandEncoder()
     pass = encoder.beginComputePass()
 
-  {.noSideEffect.}:
-    with pass:
-      setPipeline(compute.pipeline)
-      setBindGroup(0, compute.sharedBindGroup)
-      setBindGroup(1, compute.bindGroup)
-      dispatchWorkgroups(compute.nBufferObjects.dbg div DimP)
-      `end`()
+  with pass:
+    setPipeline(compute.pipeline)
+    setBindGroup(0, compute.sharedBindGroup)
+    setBindGroup(1, compute.bindGroup)
+    dispatchWorkgroups(compute.nBufferObjects.dbg div DimP)
+    `end`()
 
   let commandBuffer = encoder.finish()
   compute.device.queue.submit(@[commandBuffer])
