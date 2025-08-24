@@ -6,7 +6,7 @@
 @group(0) @binding(2) var<storage, read_write> prevpos_newaccel: array<vec4f>; // xy is prev pos, wz is new accel
 
 const EPS2: f32 = 1e-3;
-const MASS_MULTIPLIER = 10000;
+const MASS_MULTIPLIER = 1000;
 
 const p = $#;
 const q = $#;
@@ -22,29 +22,29 @@ var<workgroup> tile_objects: array<vec3f, workgroup_size>;
     let n_objects = n_objects;
     let object = objects[id.x];
     var acc = vec2f(0, 0);
+    var prev_pos = prevpos_newaccel[id.x].xy;
 
     var tile = 0u;
     var i = 0u;
     while (i < n_objects) {
         tile_objects[local_id.x] = objects[i + local_id.x];
         workgroupBarrier();
+
+        // start tile
         let n_wg_objects = min(n_objects - i, workgroup_size);
-        acc += tile_calculation(object, n_wg_objects);
+        for (var j = 0u; j < n_wg_objects; j++) {
+            let bj = tile_objects[j];
+            acc += body_body_interaction(object, bj);
+            prev_pos += resolve_collision(object, bj);
+        }
+
+        // end tile
         workgroupBarrier();
         i += p;
         tile++;
     }
 
-    prevpos_newaccel[id.x] = vec4f(prevpos_newaccel[id.x].xy, acc);
-}
-
-fn tile_calculation(my_pos: vec3f, n: u32) -> vec2f {
-    var acc = vec2f(0, 0);
-    for (var j = 0u; j < n; j++) {
-        let bj = tile_objects[j];
-        acc += body_body_interaction(my_pos, bj);
-    }
-    return acc;
+    prevpos_newaccel[id.x] = vec4f(prev_pos, acc);
 }
 
 fn body_body_interaction(bi: vec3f, bj: vec3f) -> vec2f {
@@ -52,6 +52,29 @@ fn body_body_interaction(bi: vec3f, bj: vec3f) -> vec2f {
     let distSqr = dot(r, r) + EPS2;
     let distSixth = distSqr * distSqr * distSqr;
     let invDistCube = inverseSqrt(distSixth);
-    let s = bj.z * MASS_MULTIPLIER * invDistCube;
+    let m = MASS_MULTIPLIER * bj.z * bj.z;
+    let s = m * invDistCube;
     return r.xy * s;
+}
+
+fn resolve_collision(bi: vec3f, bj: vec3f) -> vec2f {
+    var correction = vec2f(0, 0);
+    let pi = bi.xy;
+    let pj = bj.xy;
+    let ri = bi.z;
+    let rj = bj.z;
+
+    let delta = pj - pi;
+    let dist = length(delta);
+    let minDist = ri + rj;
+    if (dist < minDist && dist > 0.0) {
+        let n = delta / dist;
+        let penetration = minDist - dist;
+
+        // move them apart proportional to inverse mass
+        let w1 = rj / (ri + rj);
+        correction = n * penetration * w1;
+    }
+
+    return correction;
 }
