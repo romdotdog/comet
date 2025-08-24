@@ -37,8 +37,8 @@ var<workgroup> tile_objects: array<vec3f, workgroup_size>;
             acc += body_body_interaction(object, bj);
             prev_pos += resolve_collision(object, bj);
         }
-
         // end tile
+
         workgroupBarrier();
         i += p;
         tile++;
@@ -72,7 +72,7 @@ fn resolve_collision(bi: vec3f, bj: vec3f) -> vec2f {
         let penetration = minDist - dist;
 
         // move them apart proportional to inverse mass
-        let w1 = rj / (ri + rj);
+        let w1 = (rj * rj) / (ri * ri + rj * rj);
         correction = n * penetration * w1;
     }
 

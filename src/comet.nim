@@ -163,16 +163,18 @@ proc main(device: GPUDevice) {.async.} =
   #   data[i] = data[i] * 2
 
   let 
-    n = 20
+    n = 2000
     nAligned = n.uint.align(DimP)
 
   # we have to add zeroes because of padding
   var input = TypedArray[float32].new(nAligned * 4)
 
   for i in 0..<n:
-    input[i * 4 + 0] = Math.random() * 1000 - 500
-    input[i * 4 + 1] = Math.random() * 1000 - 500
+    input[i * 4 + 0] = Math.random() * 10000 - 500
+    input[i * 4 + 1] = Math.random() * 10000 - 500
     input[i * 4 + 2] = Math.random() * 5 + 5
+
+  input[0 * 1 + 2] = 500
 
   let compute = await initCompute(
     device,
