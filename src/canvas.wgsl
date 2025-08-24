@@ -18,8 +18,7 @@ struct Output {
   @location(0) hovering: u32
 }
 
-@group(0) @binding(0) var<uniform> n_objects: u32;
-@group(0) @binding(1) var<storage, read> objects: array<vec3f>;
+@group(0) @binding(0) var<storage, read> objects: array<vec3f>;
 
 @group(1) @binding(0) var<uniform> uniforms: Uniforms;
 @group(1) @binding(1) var<storage, read_write> data: Output;

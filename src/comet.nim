@@ -56,48 +56,6 @@ func toBLCanvasCoords(
   result.y = 1 - result.y # invert y coordinate (0 means bottom)
   result *= canvas.size.to(float32) # [0, canvas size]
 
-# TODO: Refactor, separate into different files. Organize, make it easy for the
-#       render pipeline to be able to use the shared layout and bindgroup. Shit
-#       here should be shorter, 500loc is too much
-proc compute(device: GPUDevice) {.async.} =
-  let
-    nObjects = 4'u
-    # shit must be padded for aligned
-    nObjectsAligned = nObjects.align(DimP)
-    eps2 = 1e-3'f32
-    objects = TypedArray[float32].new(4 * nObjectsAligned)
-    accelerations = TypedArray[float32].new(2 * nObjectsAligned)
-
-  for i in countup(0, nObjects.int * 4, step = 4):
-    objects[i + 0] = Math.random() * 40
-    objects[i + 1] = Math.random() * 40
-    objects[i + 2] = Math.random() * 10
-    # objects[i + 0] = i.float32 * 4
-    # objects[i + 1] = i.float32 * 5 - 0.5
-    # objects[i + 2] = i.float32 * 10
-
-  let compute = await initCompute(
-    device,
-    nObjects,
-    objects,
-    accelerations,
-    eps2
-  )
-
-  compute.run()
-
-  let
-    resultBuffer = await compute.accelerations()
-    shaderResult = TypedArray[float32].new(resultBuffer.getMappedRange())
-
-  console.log("nObjects", nObjects)
-  console.log("nObjectsAligned", nObjectsAligned)
-  console.log("objects", objects)
-  console.log("accelerations", accelerations)
-  console.log("result", shaderResult)
-
-  resultBuffer.unmap()
-
 proc main(device: GPUDevice) {.async.} =
   let
     timing = document.getElementById("timing")
@@ -148,9 +106,11 @@ proc main(device: GPUDevice) {.async.} =
     deltaY: float32
 
   canvas.addEventListener("wheel", proc(e: Event) =
+    e.preventDefault()
     let wheelEvent = e.WheelEvent
     mouse @= wheelEvent.position().toBLCanvasCoords(rect, canvas)
-    scaleTarget *= pow(1.4, -wheelEvent.deltaY.float32 / 100.0))
+    scaleTarget *= pow(1.4, -wheelEvent.deltaY.float32 / 100.0)
+  , AddEventListenerOptions(passive: false))
 
   proc processMomentum() =
     # wheel
@@ -175,7 +135,6 @@ proc main(device: GPUDevice) {.async.} =
       panOffset += (mouseClip - panOffset) *. factor
 
     # pan
-
     if not currentlyPanning:
       panOffset += panVelocity *. 2
 
@@ -196,9 +155,6 @@ proc main(device: GPUDevice) {.async.} =
     alphaMode: "premultiplied"
   ))
 
-  await compute(device)
-
-  return
 
   # var data {.group: 0, binding: 0, flags: [storage, read_write].}: array[f32]
 
@@ -206,25 +162,28 @@ proc main(device: GPUDevice) {.async.} =
   #   let i = id.x
   #   data[i] = data[i] * 2
 
-  let n = 1000
-  var input = TypedArray[float32].new(n * 4)
+  let 
+    n = 20
+    nAligned = n.uint.align(DimP)
+
+  # we have to add zeroes because of padding
+  var input = TypedArray[float32].new(nAligned * 4)
 
   for i in 0..<n:
     input[i * 4 + 0] = Math.random() * 1000 - 500
     input[i * 4 + 1] = Math.random() * 1000 - 500
     input[i * 4 + 2] = Math.random() * 5 + 5
 
+  let compute = await initCompute(
+    device,
+    n.uint,
+    nAligned,
+    input,
+  )
+
   console.log("input", input)
 
-  # we have to add zeroes because of padding
-
   let
-    workBuffer = device.createBuffer(
-      label = "work buffer",
-      size = input.byteLength,
-      usage = {Storage, CopySrc, CopyDst}
-    )
-
     outBuffer = device.createBuffer(
       label = "out buffer",
       size = 4,
@@ -236,8 +195,6 @@ proc main(device: GPUDevice) {.async.} =
       size = 4,
       usage = {MapRead, CopyDst}
     )
-
-  device.queue.writeBuffer(workBuffer, 0, input)
 
   var uniform = [
     canvas.width.float32,
@@ -259,7 +216,16 @@ proc main(device: GPUDevice) {.async.} =
         layout: device.createPipelineLayout(GPUPipelineLayoutDescriptor(
           label: "render pipeline layout",
           bindGroupLayouts: @[
-            # sharedLayout,
+            device.createBindGroupLayout(GPUBindGroupLayoutDescriptor(
+              label: "computed bindgroup layout",
+              entries: @[
+                bindGroupLayoutEntry(
+                  binding = 0,
+                  visibility = {GPUShaderStage.Vertex},
+                  buffer = GPULayoutEntryBuffer(`type`: "read-only-storage")
+                ),
+              ]
+            )),
             device.createBindGroupLayout(GPUBindGroupLayoutDescriptor(
               label: "render bindgroup layout",
               entries: @[
@@ -270,7 +236,7 @@ proc main(device: GPUDevice) {.async.} =
                 ),
                 bindGroupLayoutEntry(
                   binding = 1,
-                  visibility = {GPUShaderStage.Vertex, Fragment},
+                  visibility = {Fragment},
                   buffer = GPULayoutEntryBuffer(`type`: "storage")
                 ),
               ]
@@ -279,18 +245,19 @@ proc main(device: GPUDevice) {.async.} =
         )),
         vertex: GPUVertex(
           module: module,
+          entrypoint: "vs",
           buffers: @[
-            GPUVertexBufferLayout(
-              arrayStride: 16,
-              stepMode: "vertex",
-              attributes: @[
-                GPUVertexBufferAttribute(
-                  format: "float32x4",
-                  shaderLocation: 0,
-                  offset: 0
-                )
-              ]
-            )
+            # GPUVertexBufferLayout(
+            #   arrayStride: 16,
+            #   stepMode: "vertex",
+            #   attributes: @[
+            #     GPUVertexBufferAttribute(
+            #       format: "float32x4",
+            #       shaderLocation: 0,
+            #       offset: 0
+            #     )
+            #   ]
+            # )
           ]
         ),
         fragment: GPUFragment(
@@ -322,6 +289,17 @@ proc main(device: GPUDevice) {.async.} =
       usage = {CopyDst, Uniform}
     )
 
+    computedBindGroup = device.createBindGroup(GPUBindGroupDescriptor(
+      label: "bindGroup for vertex shader",
+      layout: pipeline.getBindGroupLayout(0),
+      entries: @[
+        bufferBindGroupEntry(
+          binding = 0,
+          buffer = compute.objectsBuffer
+        )
+      ]
+    ))
+
     renderBindGroup = device.createBindGroup(GPUBindGroupDescriptor(
       label: "bindGroup for vertex shader",
       layout: pipeline.getBindGroupLayout(1),
@@ -352,8 +330,10 @@ proc main(device: GPUDevice) {.async.} =
   proc frame(time: float) {.async.} =
     let dt = time - prevTime
     prevTime = time
-
     processMomentum()
+
+    compute.step()
+    
     uniform[2..6] = [
       panOffset.x.float32,
       panOffset.y,
@@ -377,7 +357,7 @@ proc main(device: GPUDevice) {.async.} =
 
     with passEncoder:
       setPipeline(pipeline)
-      # setBindGroup(0, sharedBindGroup)
+      setBindGroup(0, computedBindGroup)
       setBindGroup(1, renderBindGroup)
       draw(6, n)
       `end`()
@@ -406,7 +386,7 @@ proc main(device: GPUDevice) {.async.} =
 
     timing.textContent = cstring(formatFloat(1000 / dt, precision = 1))
 
-    # discard window.requestAnimationFrame() do (time: float): discard frame(time)
+    discard window.requestAnimationFrame() do (time: float): discard frame(time)
 
   discard window.requestAnimationFrame() do (time: float): discard frame(time)
 

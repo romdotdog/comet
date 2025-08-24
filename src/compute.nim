@@ -7,7 +7,9 @@ import ./[webgpu, gpu_utils, typed_arrays]
 const
   DimP* = 9
   DimQ* = 1
-  ComputeShader = staticRead("compute.wgsl") % [$DimP, $DimQ]
+  DimIntegrator = 64
+  KernelShader = staticRead("kernel.wgsl") % [$DimP, $DimQ]
+  IntegratorShader = staticRead("integrator.wgsl")
 
 template dbg*(a: untyped): untyped =
   {.noSideEffect.}:
@@ -17,16 +19,16 @@ template dbg*(a: untyped): untyped =
 type
   GPUCompute* = ref object
     device: GPUDevice
-    module: GPUShaderModule
+    kernelPipeline, integratorPipeline: GPUComputePipeline
+    kernelWorkgroups, integratorWorkgroups: uint
+
     layout: GPUPipelineLayout
-    pipeline: GPUComputePipeline
 
-    nObjects, nBufferObjects: uint
+    nObjects, nObjectsAligned: uint
 
-    accelerationsMapBuffer: GPUBuffer
-    accelerationsBuffer: GPUBuffer
+    nObjectsBuffer: GPUBuffer
+    objectsBuffer, objectsMapBuffer: GPUBuffer
 
-    nObjectsBuffer, objectsBuffer: GPUBuffer
     sharedBindGroup, bindGroup: GPUBindGroup
 
 func nObjectsBuffer*(compute: GPUCompute): GPUBuffer = compute.nObjectsBuffer
@@ -36,53 +38,76 @@ func sharedBindGroup*(compute: GPUCompute): GPUBindGroup =
 
 proc initCompute*(
   device: GPUDevice,
-  nObjects: uint;
-  objects, accelerations: TypedArray[float32];
-  eps2: float32 = 1e-3'f32
+  nObjects, nObjectsAligned: uint;
+  objects: TypedArray[float32]
 ): Future[GPUCompute] {.async.} =
+  # internal buffer
+  let ppnl = TypedArray[float32].new(4 * nObjects)
+
+  # set prev position to current
+  for i in 0..<nObjects.int:
+    ppnl[i * 4 + 0] = objects[i * 4 + 0]
+    ppnl[i * 4 + 1] = objects[i * 4 + 1]
+
   # modules
-  let shaderModule = device.createShaderModule(GPUShaderModuleDescriptor(
-    label: "compute shader",
-    code: ComputeShader
+  let kernelModule = device.createShaderModule(GPUShaderModuleDescriptor(
+    label: "kernel module",
+    code: KernelShader
+  ))
+
+  let integratorModule = device.createShaderModule(GPUShaderModuleDescriptor(
+    label: "integrator module",
+    code: IntegratorShader
   ))
 
   # layout and pipeline
-  let
-    layout = device.createPipelineLayout(GPUPipelineLayoutDescriptor(
-        label: "compute pipeline layout",
-        bindGroupLayouts: @[
-          device.createBindGroupLayout(GPUBindGroupLayoutDescriptor(
-            label: "compute bindgroup layout",
-            entries: @[
-              bindGroupLayoutEntry(
-                binding = 0,
-                visibility = {Compute},
-                buffer = GPULayoutEntryBuffer(`type`: "uniform")
-              ),
-              bindGroupLayoutEntry(
-                binding = 1,
-                visibility = {Compute},
-                buffer = GPULayoutEntryBuffer(`type`: "storage")
-              ),
-              # TODO: Left here
-              # GPUBindGroupLayoutEntry(
-              #   binding: 4,
-              #   visibility: {GPUShaderStage.Compute}.toInt(),
-              #   kind: Buffer,
-              #   buffer: GPULayoutEntryBuffer(`type`: "storage")
-              # ),
-            ]
-          )),
-        ]
-      ))
 
-    pipeline =
+  let 
+    bindGroupLayout = device.createBindGroupLayout(GPUBindGroupLayoutDescriptor(
+      label: "compute shared bindgroup layout",
+      entries: @[
+        bindGroupLayoutEntry(
+          binding = 0,
+          visibility = {Compute},
+          buffer = GPULayoutEntryBuffer(`type`: "uniform")
+        ),
+        bindGroupLayoutEntry(
+          binding = 1,
+          visibility = {Compute},
+          buffer = GPULayoutEntryBuffer(`type`: "storage")
+        ),
+        bindGroupLayoutEntry(
+          binding = 2,
+          visibility = {Compute},
+          buffer = GPULayoutEntryBuffer(`type`: "storage")
+        ),
+      ]
+    ))
+
+    pipelineLayout = device.createPipelineLayout(GPUPipelineLayoutDescriptor(
+      label: "compute pipeline layout",
+      bindGroupLayouts: @[
+        bindGroupLayout
+      ]
+    ))
+
+    kernelPipeline =
       await device.createComputePipelineAsync(GPUComputePipelineDescriptor(
-        label: "compute pipeline",
-        layout: layout,
+        label: "kernel pipeline",
+        layout: pipelineLayout,
         compute: GPUComputeDescriptor(
           entryPoint: "main",
-          module: shaderModule
+          module: kernelModule
+        )
+      ))
+
+    integratorPipeline =
+      await device.createComputePipelineAsync(GPUComputePipelineDescriptor(
+        label: "integrator pipeline",
+        layout: pipelineLayout,
+        compute: GPUComputeDescriptor(
+          entryPoint: "main",
+          module: integratorModule
         )
       ))
 
@@ -93,98 +118,83 @@ proc initCompute*(
       size = sizeof(uint32),
       usage = {Uniform, CopyDst}
     )
-    # nObjectsMapBuffer = device.createBuffer(
-    #   label = "nObjects map buffer",
-    #   size = sizeof(uint32),
-    #   usage = {Uniform, CopyDst, MapRead}
-    # )
     objectsBuffer = device.createBuffer(
       label = "objects buffer",
       size = objects.byteLength,
-      usage = {GPUBufferUsage.Storage, CopyDst}
+      usage = {GPUBufferUsage.Storage, CopySrc, CopyDst}
     )
-    eps2Buffer = device.createBuffer(
-      label = "eps^2 buffer",
-      size = sizeof(float32),
-      usage = {Uniform, CopyDst}
-    )
-    accelerationsBuffer = device.createBuffer(
-      label = "accelerations buffer",
-      size = accelerations.byteLength,
-      usage = {GPUBufferUsage.Storage, CopyDst, CopySrc}
-    )
-    accelerationsMapBuffer = device.createBuffer(
-      label = "accelerations map buffer",
-      size = accelerations.byteLength,
+    objectsMapBuffer = device.createBuffer(
+      label = "objects map buffer",
+      size = objects.byteLength,
       usage = {MapRead, CopyDst}
+    )
+    ppnlBuffer = device.createBuffer(
+      label = "<prev_pos, new_accel> buffer",
+      size = objects.byteLength,
+      usage = {GPUBufferUsage.Storage, CopyDst}
     )
 
   with device.queue:
-    writeBuffer(eps2Buffer, 0, [eps2])
     writeBuffer(nObjectsBuffer, 0, [nObjects])
     writeBuffer(objectsBuffer, 0, objects)
-    writeBuffer(accelerationsBuffer, 0, accelerations)
+    writeBuffer(ppnlBuffer, 0, ppnl)
 
   let
-    sharedBindGroup = device.createBindGroup(GPUBindGroupDescriptor(
-      label: "shared bindgroup",
-      layout: pipeline.getBindGroupLayout(0),
+    bindGroup = device.createBindGroup(GPUBindGroupDescriptor(
+      label: "compute shared bindgroup",
+      layout: bindGroupLayout,
       entries: @[
         bufferBindGroupEntry(0, nObjectsBuffer),
         bufferBindGroupEntry(1, objectsBuffer),
-      ]
-    ))
-    computeBindGroup = device.createBindGroup(GPUBindGroupDescriptor(
-      label: "compute bindgroup",
-      layout: pipeline.getBindGroupLayout(1),
-      entries: @[
-        bufferBindGroupEntry(0, eps2Buffer),
-        bufferBindGroupEntry(1, accelerationsBuffer),
+        bufferBindGroupEntry(2, ppnlBuffer)
       ]
     ))
 
   result = GPUCompute(
     device: device,
-    module: shaderModule,
-    layout: layout,
-    pipeline: pipeline,
+    kernelPipeline: kernelPipeline,
+    integratorPipeline: integratorPipeline,
     nObjects: nObjects.dbg,
-    nBufferObjects: objects.len.uint div 4,
-    accelerationsMapBuffer: accelerationsMapBuffer,
-    accelerationsBuffer: accelerationsBuffer,
+    nObjectsAligned: nObjectsAligned,
+    kernelWorkgroups: (nObjects + DimP - 1) div DimP,
+    integratorWorkgroups: (nObjects + DimIntegrator - 1) div DimIntegrator,
     nObjectsBuffer: nObjectsBuffer,
     objectsBuffer: objectsBuffer,
-    sharedBindGroup: sharedBindGroup,
-    bindGroup: computeBindGroup
+    objectsMapBuffer: objectsMapBuffer,
+    bindGroup: bindGroup
   )
 
-func run*(compute: GPUCompute) =
+func step*(compute: GPUCompute) =
   let
     encoder = compute.device.createCommandEncoder()
     pass = encoder.beginComputePass()
 
   with pass:
-    setPipeline(compute.pipeline)
-    setBindGroup(0, compute.sharedBindGroup)
-    setBindGroup(1, compute.bindGroup)
-    dispatchWorkgroups(compute.nBufferObjects.dbg div DimP)
+    setBindGroup(0, compute.bindGroup)
+
+    setPipeline(compute.kernelPipeline)
+    dispatchWorkgroups(compute.kernelWorkgroups)
+
+    setPipeline(compute.integratorPipeline)
+    dispatchWorkgroups(compute.integratorWorkgroups)
+
     `end`()
 
   let commandBuffer = encoder.finish()
   compute.device.queue.submit(@[commandBuffer])
 
-proc accelerations*(
+proc positions*(
   compute: GPUCompute
 ): Future[GPUBuffer] {.async.} =
   let encoder = compute.device.createCommandEncoder()
   encoder.copyBufferToBuffer(
-    compute.accelerationsBuffer,
+    compute.objectsBuffer,
     0,
-    compute.accelerationsMapBuffer,
+    compute.objectsMapBuffer,
     0,
-    compute.nBufferObjects.int * sizeof(float32) * 2
+    compute.nObjectsAligned.int * sizeof(float32) * 4
   )
   let commandBuffer = encoder.finish()
   compute.device.queue.submit(@[commandBuffer])
-  discard await compute.accelerationsMapBuffer.mapAsync(Read)
-  result = compute.accelerationsMapBuffer
+  discard await compute.objectsMapBuffer.mapAsync(Read)
+  result = compute.objectsMapBuffer

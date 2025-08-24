@@ -2,11 +2,11 @@
 
 // shared
 @group(0) @binding(0) var<uniform> n_objects: u32;
-@group(0) @binding(1) var<storage, read_write> objects: array<vec3f>;
+@group(0) @binding(1) var<storage, read_write> objects: array<vec3f>; // xy is current pos, z is mass
+@group(0) @binding(2) var<storage, read_write> prevpos_newaccel: array<vec4f>; // xy is prev pos, wz is new accel
 
-// private to pipeline
-@group(1) @binding(0) var<uniform> EPS2: f32;
-@group(1) @binding(1) var<storage, read_write> accelerations: array<vec2f>;
+const EPS2: f32 = 1e-3;
+const MASS_MULTIPLIER = 10000;
 
 const p = $#;
 const q = $#;
@@ -35,7 +35,7 @@ var<workgroup> tile_objects: array<vec3f, workgroup_size>;
         tile++;
     }
 
-    accelerations[id.x] = acc;
+    prevpos_newaccel[id.x] = vec4f(prevpos_newaccel[id.x].xy, acc);
 }
 
 fn tile_calculation(my_pos: vec3f, n: u32) -> vec2f {
@@ -52,6 +52,6 @@ fn body_body_interaction(bi: vec3f, bj: vec3f) -> vec2f {
     let distSqr = dot(r, r) + EPS2;
     let distSixth = distSqr * distSqr * distSqr;
     let invDistCube = inverseSqrt(distSixth);
-    let s = bj.z * invDistCube;
+    let s = bj.z * MASS_MULTIPLIER * invDistCube;
     return r.xy * s;
 }

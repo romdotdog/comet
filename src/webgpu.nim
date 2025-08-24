@@ -103,7 +103,7 @@ type
   GPUVertex* = ref object
     module*: GPUShaderModule
     # constants*: JSObject
-    entryPoint*: cstring = nil
+    entryPoint*: cstring
     buffers*: seq[GPUVertexBufferLayout]
 
   GPUVertexBufferLayout* = ref object
